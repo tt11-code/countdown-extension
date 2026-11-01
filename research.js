@@ -3,60 +3,21 @@
 
   const CACHE_MAX_AGE = 1000 * 60 * 60 * 24;
   const API_ROOT = 'https://en.wikipedia.org/w/api.php';
-  const GDELT_ROOT = 'https://api.gdeltproject.org/api/v2/doc/doc';
 
   function milestoneSignature(milestone) {
     return [milestone.id, milestone.title, milestone.subtitle, milestone.date, milestone.time].join('|');
   }
 
-  function ageContext(data) {
-    if (!data.birthday) return '';
-    const birthday = CountdownLogic.nextBirthday(data.birthday, new Date());
-    return birthday ? String(birthday.age) : '';
-  }
-
   function eligibleContext(data) {
     const birthday = data.birthdayEnabled && data.birthday ? {
       id: 'birthday',
-      title: 'Birthday',
-      subtitle: 'Interesting documented achievements connected to the age I am turning',
+      title: 'Until I turn',
+      subtitle: 'Documented achievements connected to the age I am turning',
       date: data.birthday,
-      age: ageContext(data)
+      age: String(CountdownLogic.nextBirthday(data.birthday, new Date()).age)
     } : null;
     const byId = new Map(data.milestones.map((milestone) => [milestone.id, milestone]));
     return (data.order || []).map((id) => id === 'birthday' ? birthday : byId.get(id)).filter(Boolean)[0] || null;
-  }
-
-  function categoryFor(milestone) {
-    const text = `${milestone.title} ${milestone.subtitle}`.toLowerCase();
-    if (milestone.id === 'birthday' || /\b(turn|age|aged|year[- ]old|birthday)\b/.test(text)) return { type: 'age', age: String(milestone.age || (text.match(/\b\d{1,3}\b/) || [])[0] || '') };
-    if (/\bgraduat|degree|college|university|school|academic\b/.test(text)) return { type: 'education' };
-    if (/\bdoctor|physician|medical|medicine|lawyer|attorney|pilot|aviation|actor|acting\b/.test(text)) return { type: 'professional' };
-    if (/\bjob|career|work|employ|profession|hire\b/.test(text)) return { type: 'career' };
-    if (/\bstart|found|launch|business|company|entrepreneur\b/.test(text)) return { type: 'business' };
-    if (/\bmove|relocat|abroad|immigra|expat\b/.test(text)) return { type: 'relocation' };
-    if (/\blanguage|fluent|learn\b/.test(text)) return { type: 'language' };
-    if (/\bvisit|travel|trip|explor|japan|france|italy|canada|london\b/.test(text)) return { type: 'travel' };
-    if (/\bmarathon|run|race|cycling|climb\b/.test(text)) return { type: 'sport' };
-    return { type: 'general' };
-  }
-
-  function fallbackQueries(milestone) {
-    const category = categoryFor(milestone);
-    const text = `${milestone.title} ${milestone.subtitle}`.trim();
-    const queries = {
-      age: [`notable achievements at age ${category.age}`, `people achieved something when they were ${category.age}`, `career beginnings at age ${category.age}`],
-      education: ['documented graduation stories educational achievements', 'people earned a degree overcoming challenges', 'notable university graduation achievements'],
-      professional: [`documented ${text} career journey`, `people became professionals in ${text}`, `${text} education and career beginnings`],
-      career: ['documented first job career beginnings success story', 'people found employment after career change', 'overcame unemployment career story'],
-      business: ['documented entrepreneur company founding story', 'people started a successful business', 'startup founder journey'],
-      relocation: ['documented people moved abroad life story', 'international relocation experience', 'starting over in another country'],
-      language: ['documented people learned a new language journey', 'language learning achievement story', 'became fluent in another language'],
-      travel: [`interesting documented travel experience ${text}`, `${text} travel discoveries`, `${text} notable places`],
-      sport: ['documented first marathon achievement story', 'people completed marathon journey', 'notable running achievement'],
-      general: [`${text} documented achievement story`, `${text} life experience`, `people accomplished ${text}`]
-    };
-    return queries[category.type] || queries.general;
   }
 
   function request(url) {
@@ -69,158 +30,223 @@
     });
   }
 
-  function httpsUrl(value) {
+  function httpsWikiUrl(value) {
     try {
       const url = new URL(value);
-      return url.protocol === 'https:' ? url.href : '';
+      return url.protocol === 'https:' && url.hostname === 'en.wikipedia.org' ? url.href : '';
     } catch (error) { return ''; }
   }
 
-  function safeWikiUrl(value) {
-    const url = httpsUrl(value);
-    return url && new URL(url).hostname === 'en.wikipedia.org' ? url : '';
-  }
-
-  function safeImageUrl(value) {
-    const url = httpsUrl(value);
-    if (!url) return '';
-    const hostname = new URL(url).hostname;
-    return hostname === 'upload.wikimedia.org' || hostname === 'en.wikipedia.org' ? url : '';
+  function httpsImageUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && url.hostname === 'upload.wikimedia.org' && /\.(jpe?g|png)$/i.test(url.pathname) ? url.href : '';
+    } catch (error) { return ''; }
   }
 
   function ageEvidence(text, age) {
+    if (!age) return '';
     const clean = String(text || '').replace(/\s+/g, ' ');
-    if (!age || /\bGilded Age\b|\bIce Age\b|\bStone Age\b|\bMiddle Ages\b/i.test(clean)) return '';
-    const pattern = new RegExp(`(?:at the age of|at age|at|aged|when (?:he|she|they) was|when (?:he|she|they) were)\\s+${age}\\b[^.?!]*[.!?]`, 'i');
-    const match = clean.match(pattern);
-    return match ? match[0].trim() : '';
-  }
-
-  function relevant(result, milestone, category) {
-    const haystack = `${result.title} ${result.snippet || ''}`.toLowerCase();
-    if (/disambiguation|doctor who|doctor sleep|seventh doctor|gilded age|ice age|stone age|middle ages/i.test(result.title)) return false;
-    if (category.type === 'age') return !/\b(age of|history of the|period)\b/i.test(haystack);
-    const concepts = {
-      education: 'graduat|degree|university|college|education|academic',
-      professional: 'doctor|physician|medical|medicine|lawyer|attorney|pilot|aviation|actor|acting',
-      career: 'job|career|work|employment|professional|company',
-      business: 'business|company|entrepreneur|founder|startup',
-      relocation: 'move|abroad|immigra|country|relocat',
-      language: 'language|fluent|linguist|speak',
-      travel: 'travel|visit|journey|destination',
-      sport: 'marathon|run|race|athlet'
-    };
-    return new RegExp(concepts[category.type] || '[a-z]').test(haystack);
-  }
-
-  async function searchWiki(query, milestone, category) {
-    const params = new URLSearchParams({ action: 'query', list: 'search', srsearch: query, srlimit: '10', format: 'json', origin: '*' });
-    const payload = await request(`${API_ROOT}?${params}`);
-    const results = payload && payload.query && Array.isArray(payload.query.search) ? payload.query.search : [];
-    return results.filter((result) => relevant(result, milestone, category));
-  }
-
-  async function searchGdelt(query) {
-    const params = new URLSearchParams({ query, mode: 'artlist', format: 'json', maxrecords: '10', sort: 'HybridRel' });
-    const payload = await request(`${GDELT_ROOT}?${params}`);
-    return (payload && Array.isArray(payload.articles) ? payload.articles : []).map((article) => {
-      const url = httpsUrl(article.url);
-      if (!url || !article.title) return null;
-      return {
-        title: article.title,
-        summary: typeof article.seendate === 'string' ? `Published ${article.seendate.slice(0, 8)} by ${new URL(url).hostname}.` : `Reported by ${new URL(url).hostname}.`,
-        url,
-        image: httpsUrl(article.socialimage),
-        imageType: article.socialimage ? 'publisher' : ''
-      };
-    }).filter(Boolean);
-  }
-
-  async function details(results, milestone, category) {
-    if (!results.length) return [];
-    const params = new URLSearchParams({
-      action: 'query', prop: 'extracts|pageimages|info', exintro: '1', explaintext: '1',
-      exchars: '700', piprop: 'thumbnail', pithumbsize: '320', inprop: 'url',
-      redirects: '1', titles: results.map((result) => result.title).join('|'),
-      format: 'json', formatversion: '2', origin: '*'
-    });
-    const payload = await request(`${API_ROOT}?${params}`);
-    const pages = payload && payload.query && Array.isArray(payload.query.pages) ? payload.query.pages : [];
-    return pages.map((page) => {
-      const url = safeWikiUrl(page.fullurl || '');
-      if (!page.title || !page.extract || !url) return null;
-      const evidence = category.type === 'age' ? ageEvidence(page.extract, category.age) : '';
-      if (category.type === 'age' && !evidence) return null;
-      return {
-        title: page.title,
-        originalTitle: page.title,
-        summary: page.extract,
-        url,
-        image: page.thumbnail && safeImageUrl(page.thumbnail.source) ? page.thumbnail.source : '',
-        imageType: page.thumbnail ? 'article' : '',
-        ageVerified: Boolean(evidence),
-        age: evidence ? Number(category.age) : null,
-        evidence
-      };
-    }).filter(Boolean);
-  }
-
-  async function fetchResults(milestone) {
-    const category = categoryFor(milestone);
-    const fallback = fallbackQueries(milestone);
-    const interpretation = await CountdownAI.interpret(milestone, { queries: fallback });
-    const queries = Array.isArray(interpretation.queries) ? interpretation.queries.filter((query) => typeof query === 'string' && query.trim()).slice(0, 5) : fallback;
-    const found = [];
-    for (const query of [...queries, ...fallback]) {
-      try {
-        const results = await searchWiki(query, milestone, category);
-        results.forEach((result) => {
-          if (!found.some((item) => item.title === result.title)) found.push(result);
-        });
-      } catch (error) { /* Continue with other public sources. */ }
-      if (found.length >= 8) break;
+    if (/\b(Gilded Age|Ice Age|Stone Age|Middle Ages)\b/i.test(clean)) return '';
+    const ages = [Number(age), Number(age) - 1].filter((value) => value > 0);
+    for (const candidate of ages) {
+      const expression = new RegExp(`(?:at the age of|at age|aged|at|when (?:he|she|they) was|when (?:he|she|they) were)\\s+${candidate}\\b[^.?!]*[.!?]`, 'i');
+      const match = clean.match(expression);
+      if (match) return match[0].trim();
     }
-    let articles = await details(found.slice(0, 8), milestone, category);
-    if (category.type !== 'age') {
-      for (const query of fallback.slice(0, 2)) {
-        try {
-          const external = await searchGdelt(query);
-          external.forEach((article) => {
-            if (!articles.some((existing) => existing.url === article.url)) articles.push(article);
-          });
-        } catch (error) { /* Rate limits must not break countdowns. */ }
+    return '';
+  }
+
+  function sourceNumbersAreValid(text, generated) {
+    const sourceNumbers = String(text).match(/\b\d{1,4}\b/g) || [];
+    return (String(generated).match(/\b\d{1,4}\b/g) || []).every((number) => sourceNumbers.includes(number));
+  }
+
+  function apiParams(params) {
+    return new URL(`${API_ROOT}?${new URLSearchParams(Object.assign(params, { format: 'json', formatversion: '2', origin: '*' }))}`).href;
+  }
+
+  async function search(query, offset) {
+    const payload = await request(apiParams({
+      action: 'query',
+      list: 'search',
+      srsearch: query,
+      srlimit: '10',
+      sroffset: String(offset || 0)
+    }));
+    return payload && payload.query && Array.isArray(payload.query.search) ? payload.query.search : [];
+  }
+
+  async function getDetails(titles) {
+    const pages = [];
+    for (let index = 0; index < titles.length; index += 20) {
+      const payload = await request(apiParams({
+        action: 'query',
+        prop: 'extracts|pageimages|info',
+        exintro: '1',
+        explaintext: '1',
+        exchars: '700',
+        piprop: 'thumbnail',
+        pithumbsize: '320',
+        inprop: 'url',
+        redirects: '1',
+        titles: titles.slice(index, index + 20).join('|')
+      }));
+      if (payload && payload.query && Array.isArray(payload.query.pages)) pages.push(...payload.query.pages);
+    }
+    return pages;
+  }
+
+  async function getAlternativeImages(titles) {
+    const images = new Map();
+    for (const title of titles.slice(0, 10)) {
+      try {
+        const payload = await request(apiParams({
+          action: 'query',
+          prop: 'images',
+          imlimit: '3',
+          titles: title
+        }));
+        const page = payload && payload.query && payload.query.pages && payload.query.pages[0];
+        const imageTitles = page && Array.isArray(page.images) ? page.images.map((image) => image.title).filter((value) => !/icon|logo|flag|map/i.test(value)) : [];
+        if (!imageTitles.length) continue;
+        const info = await request(apiParams({
+          action: 'query',
+          prop: 'imageinfo',
+          iiprop: 'url|extmetadata',
+          iiurlwidth: '320',
+          titles: imageTitles[0]
+        }));
+        const imagePage = info && info.query && info.query.pages && info.query.pages[0];
+        const image = imagePage && imagePage.imageinfo && imagePage.imageinfo[0];
+        const url = image && httpsImageUrl(image.thumburl || image.url);
+        if (url) images.set(title, { url, credit: 'Wikimedia Commons image; see source attribution.' });
+      } catch (error) {
+        continue;
       }
     }
-    const ranking = await CountdownAI.rank(milestone, articles);
-    if (Array.isArray(ranking)) {
-      articles = ranking.filter((item) => Number.isInteger(item.index) && item.index >= 0 && item.index < articles.length)
-        .sort((a, b) => Number(b.score) - Number(a.score))
-        .map((item) => articles[item.index]).filter(Boolean);
-    }
-    const results = [];
-    for (const article of articles.slice(0, 5)) {
-      const fallbackTitle = article.ageVerified
-        ? `${article.originalTitle} — documented achievement at age ${article.age}`
-        : `${article.originalTitle} — relevant ${category.type} story`;
-      const displayTitle = await CountdownAI.displayTitle(milestone, article, fallbackTitle);
-      const summary = await CountdownAI.summarize(article);
-      results.push(Object.assign({}, article, { displayTitle, summary }));
-    }
-    return results;
+    return images;
   }
 
-  async function getOrFetch(data, forceRefresh) {
-    const milestone = eligibleContext(data);
-    if (!milestone) return { data, results: [] };
-    const signature = milestone.id === 'birthday' ? `birthday|${milestone.age}|${data.birthday}` : milestoneSignature(milestone);
-    const cache = data.research || {};
-    const fresh = cache.milestoneId === milestone.id && cache.milestoneSignature === signature && Date.now() - Number(cache.fetchedAt) < CACHE_MAX_AGE;
-    if (!forceRefresh && fresh && Array.isArray(cache.results)) return { data, results: cache.results };
-    const results = await fetchResults(milestone);
-    const updated = Object.assign({}, data, { research: { milestoneId: milestone.id, milestoneSignature: signature, fetchedAt: Date.now(), results } });
+  function buildCandidates(pages, context) {
+    const age = context.age;
+    return pages.map((page) => {
+      const url = httpsWikiUrl(page.fullurl || '');
+      if (!page.title || !page.extract || !url) return null;
+      const evidence = age ? ageEvidence(page.extract, age) : '';
+      if (age && !evidence) return null;
+      return {
+        originalTitle: page.title,
+        title: page.title,
+        summary: page.extract,
+        url,
+        image: page.thumbnail && httpsImageUrl(page.thumbnail.source) ? page.thumbnail.source : '',
+        imageType: page.thumbnail ? 'article' : '',
+        evidence,
+        age: evidence ? Number(age) : null,
+        ageVerified: Boolean(evidence)
+      };
+    }).filter(Boolean);
+  }
+
+  async function fetchPool(context, queries, seenUrls) {
+    const titles = [];
+    for (const query of queries) {
+      const results = await search(query, Math.floor(Math.random() * 3) * 10);
+      results.forEach((result) => {
+        const title = result.title;
+        const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+        if (title && !seenUrls.includes(url) && !titles.includes(title) && !/disambiguation|Gilded Age|Doctor Who|Doctor Sleep|Seventh Doctor/i.test(title)) titles.push(title);
+      });
+      if (titles.length >= 30) break;
+    }
+    const pages = await getDetails(titles.slice(0, 30));
+    const alternatives = await getAlternativeImages(pages.filter((page) => !page.thumbnail).map((page) => page.title));
+    const candidates = buildCandidates(pages, context);
+    candidates.forEach((candidate) => {
+      if (!candidate.image && alternatives.has(candidate.originalTitle)) {
+        candidate.image = alternatives.get(candidate.originalTitle).url;
+        candidate.imageType = 'commons';
+        candidate.imageCredit = alternatives.get(candidate.originalTitle).credit;
+      }
+    });
+    return candidates.filter((candidate, index, list) => list.findIndex((item) => item.url === candidate.url) === index);
+  }
+
+  async function rankPool(context, pool) {
+    const ranked = [];
+    for (let index = 0; index < pool.length; index += 8) {
+      const batch = pool.slice(index, index + 8);
+      const ranking = await CountdownAI.rank(context, batch.map((item) => ({
+        title: item.originalTitle,
+        extract: item.summary,
+        evidence: item.evidence
+      })));
+      if (!Array.isArray(ranking)) throw new Error('AI relevance ranking failed.');
+      ranking.forEach((item) => {
+        if (item.relevant && Number.isFinite(Number(item.score)) && Number.isInteger(item.index) && batch[item.index]) {
+          ranked.push(Object.assign({}, batch[item.index], { relevanceScore: Number(item.score), relevanceReason: String(item.reason || '') }));
+        }
+      });
+    }
+    return ranked.sort((a, b) => b.relevanceScore - a.relevanceScore);
+  }
+
+  async function getOrFetch(data, forceRefresh, status) {
+    const context = eligibleContext(data);
+    if (!context) return { data, pool: [], currentPage: 1 };
+    const signature = context.id === 'birthday' ? `birthday|${context.age}|${data.birthday}` : milestoneSignature(context);
+    const cache = data.research;
+    if (!forceRefresh && cache.researchVersion === CountdownStorage.RESEARCH_VERSION
+      && cache.milestoneId === context.id && cache.milestoneSignature === signature
+      && Date.now() - Number(cache.fetchedAt) < CACHE_MAX_AGE && Array.isArray(cache.pool)) {
+      return { data, pool: cache.pool, currentPage: cache.currentPage || 1 };
+    }
+    const state = await CountdownAI.availability();
+    if (state !== 'available') throw new Error(state);
+    status('Understanding your milestone…');
+    const interpretation = await CountdownAI.interpret(context, forceRefresh ? cache.usedQueries || [] : []);
+    if (!interpretation || !Array.isArray(interpretation.queries) || interpretation.queries.length < 1) throw new Error('AI query generation failed.');
+    const queries = interpretation.queries.slice(0, 10);
+    status('Searching sources…');
+    const candidates = await fetchPool(context, queries, forceRefresh ? cache.seenUrls || [] : []);
+    status('Checking relevance…');
+    let pool = await rankPool(context, candidates);
+    const pageTarget = Math.max(2, Math.floor(Math.max(190, window.innerHeight - 110) / 190) * 2);
+    let seenUrls = cache.seenUrls || [];
+    if (forceRefresh && pool.length < pageTarget) {
+      status('Searching for different sources…');
+      const retry = await CountdownAI.interpret(context, queries);
+      if (retry && Array.isArray(retry.queries)) {
+        pool = await rankPool(context, await fetchPool(context, retry.queries.slice(0, 10), cache.seenUrls || []));
+      }
+      if (pool.length < pageTarget && (cache.seenUrls || []).length) {
+        status('You have seen most available inspirations, starting over.');
+        pool = await rankPool(context, await fetchPool(context, queries, []));
+        seenUrls = [];
+      }
+    }
+    const updated = Object.assign({}, data, {
+      research: {
+        researchVersion: CountdownStorage.RESEARCH_VERSION,
+        milestoneId: context.id,
+        milestoneSignature: signature,
+        fetchedAt: Date.now(),
+        currentPage: 1,
+        pool,
+        seenUrls,
+        usedQueries: [...new Set([...(cache.usedQueries || []), ...queries])].slice(-40)
+      }
+    });
     await CountdownStorage.save(updated);
-    return { data: updated, results };
+    return { data: updated, pool, currentPage: 1 };
   }
 
-  window.CountdownResearch = { CACHE_MAX_AGE, eligibleContext, categoryFor, fallbackQueries, fetchResults, getOrFetch, milestoneSignature, ageEvidence };
+  window.CountdownResearch = {
+    CACHE_MAX_AGE,
+    eligibleContext,
+    milestoneSignature,
+    sourceNumbersAreValid,
+    getOrFetch
+  };
 }());

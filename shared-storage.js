@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'countdownData';
+  const RESEARCH_VERSION = 2;
 
   function makeId() {
     return typeof crypto !== 'undefined' && crypto.randomUUID
@@ -34,8 +35,26 @@
       milestones: normalizedMilestones,
       order,
       research: source.research && typeof source.research === 'object'
-        ? source.research
-        : { milestoneId: '', fetchedAt: 0, results: [] }
+        ? Object.assign({
+          researchVersion: RESEARCH_VERSION,
+          milestoneId: '',
+          milestoneSignature: '',
+          fetchedAt: 0,
+          currentPage: 1,
+          pool: [],
+          seenUrls: [],
+          usedQueries: []
+        }, source.research)
+        : {
+          researchVersion: RESEARCH_VERSION,
+          milestoneId: '',
+          milestoneSignature: '',
+          fetchedAt: 0,
+          currentPage: 1,
+          pool: [],
+          seenUrls: [],
+          usedQueries: []
+        }
     };
   }
 
@@ -64,5 +83,5 @@
     });
   }
 
-  window.CountdownStorage = { STORAGE_KEY, makeId, normalize, get, save };
+  window.CountdownStorage = { STORAGE_KEY, RESEARCH_VERSION, makeId, normalize, get, save };
 }());

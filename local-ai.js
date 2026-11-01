@@ -2,23 +2,42 @@
   'use strict';
 
   let sessionPromise = null;
-  function getApi() { return typeof LanguageModel !== 'undefined' ? LanguageModel : null; }
+
+  function getApi() {
+    return typeof LanguageModel !== 'undefined' ? LanguageModel : null;
+  }
+
   async function availability() {
     const model = getApi();
     if (!model || typeof model.availability !== 'function') return 'unavailable';
     try { return await model.availability(); } catch (error) { return 'unavailable'; }
   }
-  async function session() {
-    if (!sessionPromise) {
-      sessionPromise = (async () => {
-        const model = getApi();
-        const state = await availability();
-        if (!model || state !== 'available') return null;
-        return model.create({ temperature: 0.1, topK: 3 });
-      })().catch(() => null);
+
+  async function createSession(withMonitor) {
+    const model = getApi();
+    if (!model) return null;
+    const state = await availability();
+    if (state !== 'available' && !withMonitor) return null;
+    try {
+      return await model.create({
+        temperature: 0.2,
+        topK: 3,
+        monitor: withMonitor ? (monitor) => {
+          monitor.addEventListener('downloadprogress', (event) => {
+            window.dispatchEvent(new CustomEvent('countdown-ai-download', { detail: event.loaded }));
+          });
+        } : undefined
+      });
+    } catch (error) {
+      return null;
     }
+  }
+
+  async function session() {
+    if (!sessionPromise) sessionPromise = createSession(false);
     return sessionPromise;
   }
+
   function parseJson(text) {
     try { return JSON.parse(text); } catch (error) {
       const match = String(text).match(/[\[{][\s\S]*[\]}]/);
@@ -26,49 +45,77 @@
       try { return JSON.parse(match[0]); } catch (parseError) { return null; }
     }
   }
-  async function jsonPrompt(prompt, fallback) {
+
+  async function promptJson(prompt, schema) {
     const active = await session();
-    if (!active) return fallback;
-    try { return parseJson(await active.prompt(prompt)) || fallback; } catch (error) { return fallback; }
+    if (!active) return null;
+    try {
+      const response = await active.prompt(prompt, {
+        responseConstraint: schema
+      });
+      return parseJson(response);
+    } catch (constraintError) {
+      try {
+        const response = await active.prompt(prompt);
+        return parseJson(response);
+      } catch (promptError) {
+        return null;
+      }
+    }
   }
+
   function describe(context) {
     return `Title: ${context.title}\nDescription: ${context.subtitle || ''}\nTarget date: ${context.date || ''}\nTarget age: ${context.age || ''}`;
   }
-  async function interpret(context, fallback) {
-    return jsonPrompt(`Return JSON only with category, intention, relatedConcepts, searchTopics, queries, and sourceCategories. Understand this personal milestone and generate four diverse public-source queries without inventing facts.\n${describe(context)}`, fallback);
+
+  async function interpret(context, previousQueries) {
+    const schema = {
+      type: 'object',
+      properties: {
+        category: { type: 'string' },
+        intention: { type: 'string' },
+        queries: { type: 'array', items: { type: 'string' }, minItems: 8, maxItems: 10 },
+        keywords: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['category', 'intention', 'queries', 'keywords']
+    };
+    return promptJson(`Understand this milestone and generate only research queries, never facts. Queries must use achievement-oriented language such as accolades, achievements, achievers, awards, records, youngest, first, hall of fame, notable people, or success story. Cover different fields and angles. ${previousQueries.length ? `Do not repeat or closely paraphrase these previous queries: ${JSON.stringify(previousQueries)}.` : ''}\n${describe(context)}`, schema);
   }
+
   async function rank(context, articles) {
-    const fallback = articles.map((article, index) => ({ index, score: 1, reason: 'Potentially related to the milestone.' }));
-    return jsonPrompt(`Return JSON only as an array of {index,score,reason}. Score supplied articles for relevance to the milestone. Use only supplied metadata; never invent facts.\n${describe(context)}\n${JSON.stringify(articles)}`, fallback);
+    const schema = {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          index: { type: 'integer' },
+          score: { type: 'number' },
+          relevant: { type: 'boolean' },
+          reason: { type: 'string' }
+        },
+        required: ['index', 'score', 'relevant', 'reason']
+      }
+    };
+    return promptJson(`Rank only these retrieved article metadata for relevance to the milestone. Do not invent facts. Return one object per article.\n${describe(context)}\n${JSON.stringify(articles)}`, schema);
   }
-  async function summarize(article) {
-    const fallback = { summary: article.summary };
-    const result = await jsonPrompt(`Return JSON only with summary. Write one factual sentence using only this supplied source text. Do not claim facts absent from it.\nTitle: ${article.title}\nSource text: ${article.summary}`, fallback);
-    return result && typeof result.summary === 'string' ? result.summary : article.summary;
+
+  async function presentation(context, article) {
+    const schema = {
+      type: 'object',
+      properties: { displayTitle: { type: 'string' }, summary: { type: 'string' } },
+      required: ['displayTitle', 'summary']
+    };
+    return promptJson(`Create a concise display title and one-sentence summary using only the supplied extract and evidence. Do not add numbers, ages, dates, achievements, or relationships absent from the source. If specificity is unsupported, use a cautious generic title.\nMilestone:\n${describe(context)}\nArticle:\n${JSON.stringify(article)}`, schema);
   }
-  async function displayTitle(context, article, fallback) {
-    const result = await jsonPrompt(`Return JSON only with title. Write a short, factual, milestone-specific title explaining the relationship between the supplied source and milestone. Use only facts in the source text. If the source does not establish a specific achievement or age, use a cautious general title.\nMilestone: ${JSON.stringify(context)}\nArticle: ${JSON.stringify(article)}`, { title: fallback });
-    return result && typeof result.title === 'string' && result.title.trim() ? result.title.trim() : fallback;
-  }
+
   async function setup() {
-    const model = getApi();
-    if (!model) return 'unavailable';
-    try {
-      const active = await model.create({
-        temperature: 0.1,
-        topK: 3,
-        monitor(monitorObject) {
-          monitorObject.addEventListener('downloadprogress', (event) => {
-            window.dispatchEvent(new CustomEvent('countdown-ai-download', { detail: event.loaded }));
-          });
-        }
-      });
-      sessionPromise = Promise.resolve(active);
-      return 'available';
-    } catch (error) {
-      sessionPromise = null;
-      return 'unavailable';
-    }
+    const state = await availability();
+    if (state === 'unavailable') return state;
+    const active = await createSession(true);
+    if (!active) return 'unavailable';
+    sessionPromise = Promise.resolve(active);
+    return 'available';
   }
-  window.CountdownAI = { availability, setup, interpret, rank, summarize, displayTitle };
+
+  window.CountdownAI = { availability, setup, interpret, rank, presentation };
 }());

@@ -1,84 +1,67 @@
 # Minimalist Birthday & Milestone Countdown
 
-This is a Manifest V3 Chrome extension with independent displays and a toolbar
-popup that share `chrome.storage.local` under the `countdownData` key:
+This Manifest V3 extension replaces New Tab with a black-on-white countdown
+dashboard and keeps the same data in `chrome.storage.local` under
+`countdownData`. The popup manages the birthday, milestone order, and
+inspiration setting. `google-homepage.js` provides the separate, conservative
+Google homepage integration.
 
-- `newtab.html` replaces Chrome's New Tab page. It displays countdowns and
-  asynchronously cached milestone inspiration; management is intentionally in
-  the toolbar popup.
-- `popup.html` provides birthday settings, enable/disable, milestone add/edit/
-  delete/reorder, and inspiration settings. Birthday is stored as the special
-  `birthday` item in the same persisted `order` array as ordinary milestones.
-  The first eligible item in that order is the highest-priority research
-  context.
-- `google-homepage.js` is a narrowly scoped, read-only display for the exact
-  Google homepage paths `https://www.google.com/` and `https://www.google.ca/`.
-  It does not run on `/search` or other sites. It waits for Google's logo and
-  fails quietly if the page structure does not expose a compatible logo.
+## AI-only inspiration
 
-Milestone inspiration uses public English Wikipedia MediaWiki results plus
-public GDELT article discovery through the extension service worker. It uses
-expanded concept-based fallback queries for employment, education, relocation,
-business, language learning, travel, sport, and age milestones. Results are
-filtered, deduplicated, URL-validated, and cached for 24 hours. Age-specific
-results are accepted only when the article extract explicitly connects an
-achievement to the target age; a calendar year or generic use of “Age” is not
-evidence. GDELT results
-provide discovery metadata and links; the extension does not scrape or claim
-to have read publishers' full articles.
+Inspiration requires Chrome's on-device Prompt API (`LanguageModel`) and
+Gemini Nano. If the browser/device reports `unavailable`, no research request
+is made. If the model is `downloadable` or `downloading`, use **Set up
+on-device AI** in the popup. No milestone or article data is sent to an
+external AI service, and there is no conventional or rule-based fallback.
 
-Result records retain both the original source title and a separate
-milestone-specific display title. Article thumbnails are preferred; HTTPS
-GDELT `socialimage` metadata is accepted as a publisher image fallback. Broken
-images are removed without removing the result. Generic fallback images are
-not substituted, because an attractive but unrelated image would be
-misleading.
+The pipeline is:
 
-Where supported, `local-ai.js` uses Chrome's current `LanguageModel` Prompt API
-on-device to interpret milestone intent, generate diverse queries, rank
-retrieved metadata, and shorten source-provided summaries. It never sends
-milestone or article data to an AI service. The popup's **Set up on-device AI**
-button is the user-initiated model setup path; if the API or model is
-unavailable, the conventional research engine remains active.
+1. Interpret the highest-priority eligible birthday or milestone.
+2. Generate 8–10 achievement-oriented search queries on-device.
+3. Retrieve English Wikipedia metadata through the service worker.
+4. Verify age evidence where applicable.
+5. Rank candidates on-device.
+6. Generate display titles and summaries on-device only for the visible page.
 
-Prompt API support depends on Chrome's current release and device eligibility.
-Chrome's documented foundation-model requirements include supported desktop
-operating systems, roughly 22 GB free profile storage, and either more than
-4 GB GPU VRAM or at least 16 GB RAM with 4 CPU cores. Chrome downloads the
-Gemini Nano model separately. Check `chrome://on-device-internals` for model
-status. These requirements can change; the fallback does not require them.
+The model is constrained to supplied source text. Generated numbers are
+validated against that text; unsupported generated wording is replaced with
+the source title and first sentence. Every card links to
+`Source: Wikipedia – <article title>` and uses only HTTPS Wikimedia images.
 
-Dates and optional times use the computer's local timezone. A date-only
-milestone is treated as midnight local time. February 29 birthdays are
-observed on February 28 in non-leap years. Countdown values are recalculated
-from the current time every second, so sleep and inactive tabs do not cause
-drift.
+## Pagination, caching, and refresh
 
-## Load locally
+The research pool is larger than one page and is split evenly between the two
+desktop side columns. The page size is computed from viewport height and a
+fixed card image/summary layout, so desktop inspiration does not create a
+scrollbar. Narrow layouts retain even-number pagination and collapse to the
+existing responsive grid. Resize recomputes the page size.
 
-1. Open `chrome://extensions` in Chrome.
+Automatic loads use a 24-hour cache keyed by the milestone signature. The
+cache stores the pool, page, queries, and up to 300 URLs already shown.
+Pagination is in-memory and page-specific AI presentation is lazy. Refresh
+always bypasses the time cache, asks for different query angles, excludes
+seen URLs, retries once, and starts over with a status message if the
+available unseen pool is exhausted.
+
+## Requirements and local loading
+
+Use a current Chrome release with Prompt API support and a compatible desktop
+device. Chrome's on-device model may require substantial free storage and
+hardware resources; check `chrome://on-device-internals` for model status.
+
+1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
-3. Choose **Load unpacked** and select this project folder.
-4. Open a new tab, then use the extension toolbar icon to enter a birthday and
-   add/reorder milestones.
-5. Refresh or close and reopen Chrome to verify persistence, ordering, and the
-   cached inspiration.
-6. Visit `https://www.google.com/` or `https://www.google.ca/` to verify the
-   shared read-only dashboard above Google's existing logo and search box.
+3. Choose **Load unpacked** and select this folder.
+4. Configure the birthday and milestones from the toolbar popup.
+5. Reload the extension after changing files and open a fresh New Tab.
+
+Dates and optional times use the computer's local timezone. Date-only
+milestones use local midnight. February 29 birthdays are observed on February
+28 during non-leap years. Countdown calculations update every second.
 
 ## Troubleshooting
 
-- After changing extension files, return to `chrome://extensions` and click
-  **Reload**, then open a fresh tab.
-- If saved data is not visible, confirm the extension is enabled and inspect
-  its service/storage errors in the extension's details page.
-- If Google changes its homepage markup, the content script intentionally
-  leaves the page unchanged rather than disrupting search. The New Tab
-  dashboard remains independent and continues to work.
-- Research requires network access to public research APIs. Rate limits or
-  outages are handled without affecting countdowns; previously cached results
-  are retained.
-- The research source is intentionally conservative: it does not scrape
-  arbitrary publications or claim that a person completed a user's goal.
-  Wikipedia's coverage of ordinary employment and graduation stories is
-  limited, so the fallback may return fewer results for those topics.
+Network failures, rate limits, unavailable models, and model errors leave the
+countdowns usable and retain the previous research pool. If Google's DOM
+changes, the content script intentionally does not alter the page unless it
+can identify the existing logo and search field safely.

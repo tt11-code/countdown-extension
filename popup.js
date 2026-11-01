@@ -114,9 +114,26 @@
     showMessage('ai-status', status === 'available' ? 'On-device AI is ready.' : 'Preparing the on-device AI model...');
     const result = await CountdownAI.setup();
     showMessage('ai-status', result === 'available'
-      ? 'On-device AI is ready and will improve future research.'
-      : 'On-device AI is unavailable. The standard research fallback remains enabled.');
+      ? 'On-device AI is ready.'
+      : 'On-device AI is unavailable. Inspiration is disabled until it is supported and ready.');
+    updateAiAvailability(result);
   });
+
+  function updateAiAvailability(state) {
+    const checkbox = document.getElementById('research-enabled');
+    const hint = document.getElementById('research-hint');
+    const available = state === 'available';
+    checkbox.disabled = !available;
+    if (!available) {
+      checkbox.checked = false;
+      hint.textContent = state === 'unavailable'
+        ? "Inspiration requires Chrome's on-device AI, which isn't supported in this browser or device."
+        : "Inspiration needs the on-device AI model. Choose 'Set up on-device AI' below.";
+    }
+    document.getElementById('ai-status').textContent = available
+      ? 'On-device AI is ready.'
+      : `On-device AI status: ${state}.`;
+  }
 
   milestonesElement.addEventListener('click', async (event) => {
     const action = event.target.dataset.action;
@@ -182,6 +199,7 @@
     render();
   });
 
+  CountdownAI.availability().then(updateAiAvailability);
   CountdownStorage.get().then((stored) => {
     data = stored;
     render();

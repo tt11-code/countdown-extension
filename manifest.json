@@ -1,14 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Minimalist Birthday & Milestone Countdown",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "A simple local countdown dashboard for your birthday and milestones.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "https://en.wikipedia.org/*",
-    "https://api.gdeltproject.org/*"
+    "https://en.wikipedia.org/*"
   ],
   "background": {
     "service_worker": "background.js"
