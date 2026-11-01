@@ -29,11 +29,17 @@
       <div id="milestones"></div>
     </section>
     <section>
-      <h2>Inspiration</h2>
+      <h2>Inspiration (requires an Exa API key)</h2>
+      <label for="exa-key">Exa API key</label>
+      <input id="exa-key" type="password" autocomplete="off">
+      <button id="save-exa-key" type="button">Save</button>
+      <button id="remove-exa-key" type="button">Remove key</button>
+      <button id="test-exa-key" type="button">Test key</button>
       <label class="check-row"><input id="research-enabled" type="checkbox"> Show milestone inspiration</label>
-      <p id="research-hint" class="hint">Uses Chrome's on-device AI and public Wikipedia summaries; no milestone data is sent to an AI service.</p>
-      <button id="setup-ai-button" type="button">Set up on-device AI</button>
-      <p id="ai-status" class="message" role="status"></p>
+      <p id="research-hint" class="hint">Add an Exa API key to enable inspiration.</p>
+      <p class="hint">Get a key at exa.ai (new accounts include free credits). Your key is stored only in this browser.</p>
+      <p class="hint">Inspiration sends generic search phrases (for example "19 year old accolades") to Exa. Your birth date, name and full milestone text are not sent.</p>
+      <p id="exa-status" class="message" role="status"></p>
     </section>
     <section id="editor" hidden>
       <h2 id="editor-heading">Add milestone</h2>
@@ -55,7 +61,6 @@
   </main>
   <script src="shared-storage.js"></script>
   <script src="countdown.js"></script>
-  <script src="local-ai.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

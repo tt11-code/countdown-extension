@@ -7,6 +7,7 @@
     "storage"
   ],
   "host_permissions": [
+    "https://api.exa.ai/*",
     "https://en.wikipedia.org/*"
   ],
   "background": {

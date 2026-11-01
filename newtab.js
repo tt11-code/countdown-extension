@@ -12,9 +12,11 @@
     status: document.getElementById('research-status')
   };
   let data;
-  let researchRequest;
+  let requestInFlight = false;
   let generation = 0;
   let timerId;
+  let errorText = '';
+  let rejectionText = '';
 
   function node(tag, className, value) {
     const element = document.createElement(tag);
@@ -23,30 +25,24 @@
     return element;
   }
 
-  function signature(context) {
-    return context.id === 'birthday' ? `birthday|${context.age}|${data.birthday}` : CountdownResearch.milestoneSignature(context);
-  }
-
   function renderCountdowns() {
     dashboard.replaceChildren();
     const now = new Date();
-    const milestones = new Map(data.milestones.map((item) => [item.id, item]));
+    const byId = new Map(data.milestones.map((item) => [item.id, item]));
     (data.order || []).forEach((id) => {
       if (id === 'birthday') {
         if (!data.birthdayEnabled || !data.birthday) return;
         const birthday = CountdownLogic.nextBirthday(data.birthday, now);
         const item = node('article', 'countdown-item');
-        item.appendChild(node('p', 'countdown', CountdownLogic.formatDuration(birthday.target - now)));
-        item.appendChild(node('p', 'age-text', `Until I turn ${birthday.age} years old`));
+        item.append(node('p', 'countdown', CountdownLogic.formatDuration(birthday.target - now)), node('p', 'age-text', `Until I turn ${birthday.age} years old`));
         dashboard.appendChild(item);
         return;
       }
-      const milestone = milestones.get(id);
+      const milestone = byId.get(id);
       if (!milestone) return;
-      const item = node('article', 'countdown-item');
       const target = CountdownLogic.milestoneTarget(milestone);
-      item.appendChild(node('p', target && target > now ? 'countdown' : 'arrived', target && target > now
-        ? CountdownLogic.formatDuration(target - now) : 'This milestone has arrived.'));
+      const item = node('article', 'countdown-item');
+      item.append(node('p', target && target > now ? 'countdown' : 'arrived', target && target > now ? CountdownLogic.formatDuration(target - now) : 'This milestone has arrived.'));
       item.appendChild(node('p', 'item-title', milestone.title));
       if (milestone.subtitle) item.appendChild(node('p', 'item-subtitle', milestone.subtitle));
       dashboard.appendChild(item);
@@ -57,139 +53,163 @@
     else message.textContent = '';
   }
 
-  function itemsPerPage() {
-    const available = Math.max(190, window.innerHeight - 110);
-    return Math.max(2, Math.floor(available / 190) * 2);
-  }
-
-  function setStatus(text) {
-    controls.status.textContent = text || '';
-  }
-
+  function status(text) { controls.status.textContent = text || ''; }
   function pageState(pool) {
-    const size = itemsPerPage();
-    const pages = Math.max(1, Math.ceil(pool.length / size));
-    const current = Math.min(Math.max(1, Number(data.research.currentPage) || 1), pages);
-    return { size, pages, current };
+    const pages = Math.max(1, Math.ceil(pool.length / CountdownResearch.INSPIRATIONS_PER_PAGE));
+    const current = Math.min(pages, Math.max(1, Number(data.research.currentPage) || 1));
+    return { pages, current };
   }
 
-  async function prepare(item, context) {
-    if (item.displayTitle && item.summaryGenerated) return item;
-    const generated = await CountdownAI.presentation(context, {
-      title: item.originalTitle,
-      extract: item.summary,
-      evidence: item.evidence
-    });
-    if (generated && generated.displayTitle && generated.summary
-      && CountdownResearch.sourceNumbersAreValid(`${item.summary} ${item.evidence}`, generated.displayTitle)
-      && CountdownResearch.sourceNumbersAreValid(`${item.summary} ${item.evidence}`, generated.summary)) {
-      item.displayTitle = String(generated.displayTitle);
-      item.summary = String(generated.summary);
-    } else {
-      item.displayTitle = item.originalTitle;
-      item.summary = String(item.summary || '').split(/(?<=[.!?])\s+/)[0] || item.originalTitle;
-    }
-    item.summaryGenerated = true;
-    return item;
+  function initials(name) {
+    return String(name).trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase();
+  }
+
+  function sourceLabel(item) {
+    const domain = new URL(item.url).hostname.replace(/^www\./, '');
+    const published = item.publishedDate && !Number.isNaN(new Date(item.publishedDate).getTime())
+      ? ` · ${new Date(item.publishedDate).toLocaleDateString()}` : '';
+    return `Source: ${domain}${published}`;
+  }
+
+  function credit(item) {
+    if (!item.imageCredit) return null;
+    const link = node('a', 'research-image-credit', item.imageCredit);
+    link.href = item.imageCreditUrl || item.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    return link;
+  }
+
+  function renderCard(item, column) {
+    const card = node('article', 'research-item');
+    const imageBox = node('div', 'research-image-box');
+    imageBox.appendChild(node('span', 'research-monogram', initials(item.personName)));
+    card.appendChild(imageBox);
+    const title = node('p', 'research-title', item.displayTitle);
+    card.appendChild(title);
+    const source = node('a', 'research-source-link', sourceLabel(item));
+    source.href = item.url;
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    card.append(source, node('p', 'research-summary', item.summary), node('p', 'research-evidence', item.evidenceQuote));
+    const imageCredit = credit(item);
+    if (imageCredit) card.appendChild(imageCredit);
+    column.appendChild(card);
+    CountdownResearch.resolveImage(item).then(() => {
+      if (!card.isConnected) return;
+      imageBox.replaceChildren();
+      if (item.image) {
+        const image = document.createElement('img');
+        image.src = item.image;
+        image.alt = item.displayTitle;
+        image.width = 160;
+        image.height = 80;
+        image.addEventListener('error', () => {
+          image.remove();
+          imageBox.appendChild(node('span', 'research-monogram', initials(item.personName)));
+        }, { once: true });
+        imageBox.appendChild(image);
+        const nextCredit = credit(item);
+        if (nextCredit) {
+          const existing = card.querySelector('.research-image-credit');
+          if (existing) existing.replaceWith(nextCredit);
+          else card.appendChild(nextCredit);
+        }
+      } else imageBox.appendChild(node('span', 'research-monogram', initials(item.personName)));
+      data.research.seenUrls = [...new Set([...(data.research.seenUrls || []), item.url])].slice(-300);
+      data.research.seenPeople = [...new Set([...(data.research.seenPeople || []), String(item.personName).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()])].slice(-200);
+      CountdownStorage.save(data).catch(() => {});
+    }).catch(() => {});
   }
 
   function renderResearch() {
     columns.forEach((column) => column.replaceChildren());
-    if (!data || !data.researchEnabled || !CountdownResearch.eligibleContext(data)) {
-      controls.previous.disabled = true;
-      controls.next.disabled = true;
-      controls.page.textContent = 'Page 1 of 1';
+    controls.refresh.disabled = requestInFlight;
+    if (!data || !data.researchEnabled) {
+      controls.previous.hidden = true;
+      controls.next.hidden = true;
+      controls.page.hidden = true;
+      controls.refresh.hidden = true;
       return;
     }
     const pool = Array.isArray(data.research.pool) ? data.research.pool : [];
     const state = pageState(pool);
-    const start = (state.current - 1) * state.size;
-    const visible = pool.slice(start, start + state.size);
-    if (visible.length % 2) visible.pop();
+    controls.previous.hidden = state.pages <= 1;
+    controls.next.hidden = state.pages <= 1;
+    controls.page.hidden = state.pages <= 1;
+    controls.refresh.hidden = false;
     controls.page.textContent = `Page ${state.current} of ${state.pages}`;
-    controls.previous.disabled = state.current <= 1;
-    controls.next.disabled = state.current >= state.pages;
-    visible.forEach((item, index) => {
-      const card = node('article', 'research-item');
-      card.appendChild(node('p', 'research-summary', 'Loading…'));
-      columns[index % 2].appendChild(card);
-      const context = CountdownResearch.eligibleContext(data);
-      prepare(item, context).then(() => {
-        if (!card.isConnected) return;
-        card.replaceChildren();
-        if (item.image) {
-          const image = document.createElement('img');
-          image.src = item.image;
-          image.alt = item.displayTitle;
-          image.width = 150;
-          image.height = 84;
-          image.addEventListener('error', () => image.remove(), { once: true });
-          card.appendChild(image);
-          card.appendChild(node('p', 'research-image-credit', item.imageCredit || 'Wikimedia image; see source attribution.'));
-        }
-        const title = node('a', '', item.displayTitle);
-        title.href = item.url;
-        title.target = '_blank';
-        title.rel = 'noopener noreferrer';
-        card.appendChild(title);
-        const source = node('a', 'research-source-link', `Source: Wikipedia – ${item.originalTitle}`);
-        source.href = item.url;
-        source.target = '_blank';
-        source.rel = 'noopener noreferrer';
-        card.appendChild(source);
-        card.appendChild(node('p', 'research-summary', item.summary));
-        if (item.evidence) card.appendChild(node('p', 'research-evidence', item.evidence));
-        data.research.seenUrls = [...new Set([...(data.research.seenUrls || []), item.url])].slice(-300);
-        CountdownStorage.save(data).catch(() => {});
-      });
-    });
+    controls.previous.disabled = state.current <= 1 || requestInFlight;
+    controls.next.disabled = state.current >= state.pages || requestInFlight;
+    const visible = pool.slice((state.current - 1) * CountdownResearch.INSPIRATIONS_PER_PAGE, state.current * CountdownResearch.INSPIRATIONS_PER_PAGE);
+    if (visible.length % 2) visible.pop();
+    visible.forEach((item, index) => renderCard(item, columns[index % 2]));
+    if (errorText) status(errorText);
+    else if (rejectionText) status(rejectionText);
+    else if (!pool.length && !requestInFlight) status('No suitable inspiration found for this milestone.');
+  }
+
+  function hasKey() {
+    return new Promise((resolve) => chrome.runtime.sendMessage({ type: 'hasExaKey' }, (response) => resolve(Boolean(response && response.hasKey))));
+  }
+
+  async function loadResearch(forceRefresh) {
+    if (requestInFlight || !data || !data.researchEnabled) return;
+    const currentGeneration = ++generation;
+    errorText = '';
+    rejectionText = '';
+    if (!(await hasKey())) {
+      errorText = 'Inspiration needs an Exa API key. Open the extension popup and add one.';
+      renderResearch();
+      return;
+    }
+    requestInFlight = true;
+    status('Searching sources…');
+    renderResearch();
+    try {
+      const result = await CountdownResearch.getOrFetch(data, forceRefresh, status);
+      if (currentGeneration !== generation) return;
+      data = result.data;
+      if (result.rejectionCounts) {
+        const rejected = Object.values(result.rejectionCounts).reduce((total, count) => total + count, 0);
+        if (!result.pool.length && rejected) rejectionText = `Results were found but none passed filtering (${rejected} rejected).`;
+      }
+      status('');
+      renderResearch();
+    } catch (error) {
+      if (currentGeneration !== generation) return;
+      const messages = {
+        'no-key': 'Inspiration needs an Exa API key. Open the extension popup and add one.',
+        unauthorized: 'The Exa API key is invalid.',
+        'no-credits': 'The Exa API key is out of credits.',
+        'rate-limited': 'Exa is rate limiting requests. Try again later.',
+        network: 'Exa could not be reached due to a network error or timeout.'
+      };
+      errorText = messages[error.code] || `Unable to load inspiration (${error.code}${error.detail ? `: ${error.detail}` : ''}).`;
+      renderResearch();
+    } finally {
+      if (currentGeneration === generation) {
+        requestInFlight = false;
+        renderResearch();
+      }
+    }
   }
 
   function changePage(delta) {
     const state = pageState(data.research.pool || []);
     data.research.currentPage = Math.min(state.pages, Math.max(1, state.current + delta));
-    CountdownStorage.save(data).then(renderResearch);
-  }
-
-  async function loadResearch(force) {
-    if (researchRequest || !data || !data.researchEnabled || !CountdownResearch.eligibleContext(data)) return;
-    const mine = ++generation;
-    const state = await CountdownAI.availability();
-    if (state !== 'available') {
-      setStatus(state === 'unavailable'
-        ? "Inspiration requires Chrome's on-device AI, which isn't supported in this browser or device."
-        : "Inspiration needs the on-device AI model. Open the extension popup and choose 'Set up on-device AI'.");
-      renderResearch();
-      return;
-    }
-    setStatus(force ? 'Refreshing inspiration…' : 'Finding milestone inspiration…');
-    researchRequest = CountdownResearch.getOrFetch(data, force, setStatus).then((result) => {
-      if (mine !== generation) return;
-      data = result.data;
-      renderResearch();
-    }).catch((error) => {
-      if (mine !== generation) return;
-      setStatus(error.message === 'unavailable' ? "Inspiration requires Chrome's on-device AI, which isn't supported in this browser or device." : 'Unable to load inspiration. Your countdowns are still available.');
-      renderResearch();
-    }).finally(() => { if (mine === generation) researchRequest = null; });
+    CountdownStorage.save(data).then(renderResearch).catch(() => {});
   }
 
   controls.previous.addEventListener('click', () => changePage(-1));
   controls.next.addEventListener('click', () => changePage(1));
   controls.refresh.addEventListener('click', () => loadResearch(true));
-  window.addEventListener('resize', () => renderResearch());
-
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes[CountdownStorage.STORAGE_KEY]) return;
-    const next = CountdownStorage.normalize(changes[CountdownStorage.STORAGE_KEY].newValue);
-    const oldContext = data && CountdownResearch.eligibleContext(data);
-    const nextContext = CountdownResearch.eligibleContext(next);
-    const changed = (!oldContext !== !nextContext) || (oldContext && nextContext && signature(oldContext) !== (nextContext.id === 'birthday' ? `birthday|${nextContext.age}|${next.birthday}` : CountdownResearch.milestoneSignature(nextContext)));
-    data = next;
+    if (area !== 'local') return;
+    if (!changes[CountdownStorage.STORAGE_KEY]) return;
+    data = CountdownStorage.normalize(changes[CountdownStorage.STORAGE_KEY].newValue);
     renderCountdowns();
-    if (changed || !next.researchEnabled) { generation += 1; researchRequest = null; }
-    if (next.researchEnabled && (changed || !data.research.pool.length)) loadResearch(false);
-    else renderResearch();
+    renderResearch();
   });
 
   CountdownStorage.get().then((stored) => {
