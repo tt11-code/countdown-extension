@@ -1,0 +1,27 @@
+:root { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; }
+* { box-sizing: border-box; }
+body { width: 360px; margin: 0; background: #fff; }
+main { padding: 16px; }
+h1 { margin: 0 0 18px; font-size: 18px; font-weight: 400; }
+h2 { margin: 0 0 10px; font-size: 14px; font-weight: 400; }
+section { margin-bottom: 20px; }
+label { display: block; margin: 8px 0 4px; font-size: 12px; }
+input:not([type="checkbox"]):not([type="hidden"]) {
+  width: 100%; min-height: 30px; border: 1px solid #777; padding: 4px 6px;
+}
+.check-row { display: flex; align-items: center; gap: 7px; }
+.check-row input { margin: 0; }
+button {
+  margin: 8px 5px 0 0; padding: 5px 9px; color: #000;
+  border: 1px solid #000; background: #fff; cursor: pointer; font: inherit; font-size: 12px;
+}
+button:hover, button:focus-visible { background: #f2f2f2; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; }
+.section-heading button { margin: 0; }
+.hint, .message { min-height: 16px; margin: 6px 0; color: #555; font-size: 11px; line-height: 1.35; }
+.message { color: #000; }
+.milestone-row { padding: 8px 0; border-top: 1px solid #ddd; }
+.milestone-name { margin: 0; font-size: 13px; }
+.milestone-meta { margin: 3px 0; color: #555; font-size: 11px; }
+.milestone-row button { margin-top: 3px; }
+#editor { border-top: 1px solid #ddd; padding-top: 14px; }

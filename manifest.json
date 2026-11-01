@@ -1,11 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Minimalist Birthday & Milestone Countdown",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A simple local countdown dashboard for your birthday and milestones.",
   "permissions": [
     "storage"
   ],
+  "host_permissions": [
+    "https://en.wikipedia.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Manage countdowns",
+    "default_popup": "popup.html"
+  },
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
@@ -16,6 +26,8 @@
         "https://www.google.ca/"
       ],
       "js": [
+        "shared-storage.js",
+        "countdown.js",
         "google-homepage.js"
       ],
       "css": [

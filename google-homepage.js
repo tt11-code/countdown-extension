@@ -55,11 +55,10 @@
     if (!dashboard) return;
     dashboard.replaceChildren();
     const now = new Date();
-    const birthday = birthdayTarget(data.birthday, now);
+    const birthday = data.birthdayEnabled ? birthdayTarget(data.birthday, now) : null;
     if (birthday) {
       const item = element('article', 'countdown-extension-item', '');
       item.append(element('p', 'countdown-extension-value', duration(birthday.target - now)));
-      item.append(element('p', 'countdown-extension-title', 'Until my next birthday'));
       item.append(element('p', 'countdown-extension-support', `Until I turn ${birthday.age} years old`));
       dashboard.append(item);
     }
@@ -86,6 +85,7 @@
       const stored = result[STORAGE_KEY] || {};
       data = {
         birthday: typeof stored.birthday === 'string' ? stored.birthday : '',
+        birthdayEnabled: stored.birthdayEnabled !== false,
         milestones: Array.isArray(stored.milestones) ? stored.milestones : []
       };
       render();
@@ -97,6 +97,7 @@
     const stored = changes[STORAGE_KEY].newValue || {};
     data = {
       birthday: typeof stored.birthday === 'string' ? stored.birthday : '',
+      birthdayEnabled: stored.birthdayEnabled !== false,
       milestones: Array.isArray(stored.milestones) ? stored.milestones : []
     };
     render();

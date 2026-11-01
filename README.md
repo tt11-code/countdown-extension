@@ -1,14 +1,25 @@
 # Minimalist Birthday & Milestone Countdown
 
-This is a Manifest V3 Chrome extension with two independent displays that share
-`chrome.storage.local` under the `countdownData` key:
+This is a Manifest V3 Chrome extension with independent displays and a toolbar
+popup that share `chrome.storage.local` under the `countdownData` key:
 
-- `newtab.html` replaces Chrome's New Tab page and provides full add, edit,
-  delete, and birthday settings controls.
+- `newtab.html` replaces Chrome's New Tab page. It displays countdowns and
+  asynchronously cached milestone inspiration; management is intentionally in
+  the toolbar popup.
+- `popup.html` provides birthday settings, enable/disable, milestone add/edit/
+  delete/reorder, and inspiration settings. The first milestone in stored order
+  is the highest-priority research context.
 - `google-homepage.js` is a narrowly scoped, read-only display for the exact
   Google homepage paths `https://www.google.com/` and `https://www.google.ca/`.
   It does not run on `/search` or other sites. It waits for Google's logo and
   fails quietly if the page structure does not expose a compatible logo.
+
+Milestone inspiration uses the public English Wikipedia MediaWiki API through
+the extension service worker. It searches according to the milestone wording,
+filters incomplete/disambiguation results, validates article and Wikimedia
+image URLs, and caches results for 24 hours. Results are suggestions based on
+public article summaries, not claims that an individual achieved a goal at a
+specific age unless the source itself provides that context.
 
 Dates and optional times use the computer's local timezone. A date-only
 milestone is treated as midnight local time. February 29 birthdays are
@@ -21,9 +32,10 @@ drift.
 1. Open `chrome://extensions` in Chrome.
 2. Enable **Developer mode**.
 3. Choose **Load unpacked** and select this project folder.
-4. Open a new tab and enter a birthday. Add milestones with the links below
-   the countdown list.
-5. Refresh or close and reopen Chrome to verify persistence and ordering.
+4. Open a new tab, then use the extension toolbar icon to enter a birthday and
+   add/reorder milestones.
+5. Refresh or close and reopen Chrome to verify persistence, ordering, and the
+   cached inspiration.
 6. Visit `https://www.google.com/` or `https://www.google.ca/` to verify the
    shared read-only dashboard above Google's existing logo and search box.
 
@@ -36,3 +48,5 @@ drift.
 - If Google changes its homepage markup, the content script intentionally
   leaves the page unchanged rather than disrupting search. The New Tab
   dashboard remains independent and continues to work.
+- Research requires network access to Wikipedia. If it is unavailable, the
+  countdowns remain usable and previously cached results are retained.

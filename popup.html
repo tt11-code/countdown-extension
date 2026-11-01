@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manage countdowns</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Countdowns</h1>
+    <section>
+      <h2>Birthday</h2>
+      <form id="birthday-form">
+        <label for="birthday-date">Date of birth</label>
+        <input id="birthday-date" type="date">
+        <label class="check-row"><input id="birthday-enabled" type="checkbox"> Show birthday countdown</label>
+        <button type="submit">Save birthday</button>
+        <button id="remove-birthday-button" type="button">Remove saved birthday</button>
+        <p id="birthday-message" class="message" role="alert"></p>
+      </form>
+    </section>
+    <section>
+      <div class="section-heading">
+        <h2>Milestones</h2>
+        <button id="add-button" type="button">Add milestone</button>
+      </div>
+      <p class="hint">The first milestone is highest priority for inspiration.</p>
+      <div id="milestones"></div>
+    </section>
+    <section>
+      <h2>Inspiration</h2>
+      <label class="check-row"><input id="research-enabled" type="checkbox"> Show milestone inspiration</label>
+      <p class="hint">Uses public Wikipedia summaries and caches results locally.</p>
+    </section>
+    <section id="editor" hidden>
+      <h2 id="editor-heading">Add milestone</h2>
+      <form id="milestone-form">
+        <input id="editing-id" type="hidden">
+        <label for="milestone-title">Title</label>
+        <input id="milestone-title" type="text" maxlength="120" required>
+        <label for="milestone-date">Target date</label>
+        <input id="milestone-date" type="date" required>
+        <label for="milestone-time">Target time (optional)</label>
+        <input id="milestone-time" type="time">
+        <label for="milestone-subtitle">Subtitle (optional)</label>
+        <input id="milestone-subtitle" type="text" maxlength="200">
+        <p id="editor-message" class="message" role="alert"></p>
+        <button type="submit">Save milestone</button>
+        <button id="cancel-button" type="button">Cancel</button>
+      </form>
+    </section>
+  </main>
+  <script src="shared-storage.js"></script>
+  <script src="countdown.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
