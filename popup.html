@@ -32,6 +32,8 @@
       <h2>Inspiration</h2>
       <label class="check-row"><input id="research-enabled" type="checkbox"> Show milestone inspiration</label>
       <p class="hint">Uses public Wikipedia summaries and caches results locally.</p>
+      <button id="setup-ai-button" type="button">Set up on-device AI</button>
+      <p id="ai-status" class="message" role="status"></p>
     </section>
     <section id="editor" hidden>
       <h2 id="editor-heading">Add milestone</h2>
@@ -53,6 +55,7 @@
   </main>
   <script src="shared-storage.js"></script>
   <script src="countdown.js"></script>
+  <script src="local-ai.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

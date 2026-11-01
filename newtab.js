@@ -23,17 +23,21 @@
     if (!data) return;
     dashboard.replaceChildren();
     const now = new Date();
-    if (data.birthdayEnabled && data.birthday) {
-      const birthday = CountdownLogic.nextBirthday(data.birthday, now);
-      if (birthday) {
+    const milestonesById = new Map(data.milestones.map((milestone) => [milestone.id, milestone]));
+    (data.order || []).forEach((id) => {
+      if (id === 'birthday') {
+        if (!data.birthdayEnabled || !data.birthday) return;
+        const birthday = CountdownLogic.nextBirthday(data.birthday, now);
+        if (!birthday) return;
         const item = document.createElement('article');
         item.className = 'countdown-item';
         item.appendChild(textElement('p', 'countdown', CountdownLogic.formatDuration(birthday.target - now)));
         item.appendChild(textElement('p', 'age-text', `Until I turn ${birthday.age} years old`));
         dashboard.appendChild(item);
+        return;
       }
-    }
-    data.milestones.forEach((milestone) => {
+      const milestone = milestonesById.get(id);
+      if (!milestone) return;
       const item = document.createElement('article');
       item.className = 'countdown-item';
       const target = CountdownLogic.milestoneTarget(milestone);
@@ -63,7 +67,7 @@
       researchColumns[0].appendChild(textElement('p', 'research-status', 'Finding milestone inspiration...'));
       return;
     }
-    if (!data || !data.researchEnabled || !data.milestones.length) return;
+    if (!data || !data.researchEnabled || !CountdownResearch.eligibleContext(data)) return;
     const refresh = textElement('button', 'research-refresh', 'Refresh inspiration');
     refresh.type = 'button';
     refresh.addEventListener('click', () => loadResearch(true));
@@ -94,7 +98,7 @@
   }
 
   async function loadResearch(forceRefresh) {
-    if (!data || !data.milestones.length || researchRequest) return;
+    if (!data || !CountdownResearch.eligibleContext(data) || researchRequest) return;
     const generation = ++researchGeneration;
     researchRequest = CountdownResearch.getOrFetch(data, forceRefresh)
       .then((result) => {
@@ -105,8 +109,11 @@
       .catch(() => {
         if (generation !== researchGeneration) return;
         const cache = data.research;
-        const signature = CountdownResearch.milestoneSignature(data.milestones[0]);
-        renderResearch(cache && cache.milestoneId === data.milestones[0].id
+        const context = CountdownResearch.eligibleContext(data);
+        const signature = context && (context.id === 'birthday'
+          ? `birthday|${context.age}|${data.birthday}`
+          : CountdownResearch.milestoneSignature(context));
+        renderResearch(cache && context && cache.milestoneId === context.id
           && cache.milestoneSignature === signature ? cache.results : [], false);
       })
       .finally(() => {
@@ -119,7 +126,7 @@
     try {
       data = await CountdownStorage.get();
       renderCountdowns();
-      if (data.researchEnabled && data.milestones.length) loadResearch(false);
+      if (data.researchEnabled && CountdownResearch.eligibleContext(data)) loadResearch(false);
       if (timerId) clearInterval(timerId);
       timerId = window.setInterval(renderCountdowns, 1000);
     } catch (error) {
@@ -130,8 +137,10 @@
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local' || !changes[CountdownStorage.STORAGE_KEY]) return;
     const next = CountdownStorage.normalize(changes[CountdownStorage.STORAGE_KEY].newValue);
-    const previousSignature = data && data.milestones[0] ? CountdownResearch.milestoneSignature(data.milestones[0]) : '';
-    const nextSignature = next.milestones[0] ? CountdownResearch.milestoneSignature(next.milestones[0]) : '';
+    const previousContext = data ? CountdownResearch.eligibleContext(data) : null;
+    const nextContext = CountdownResearch.eligibleContext(next);
+    const previousSignature = previousContext ? (previousContext.id === 'birthday' ? `birthday|${previousContext.age}|${data.birthday}` : CountdownResearch.milestoneSignature(previousContext)) : '';
+    const nextSignature = nextContext ? (nextContext.id === 'birthday' ? `birthday|${nextContext.age}|${next.birthday}` : CountdownResearch.milestoneSignature(nextContext)) : '';
     const researchContextChanged = previousSignature !== nextSignature;
     const researchSettingChanged = !data || data.researchEnabled !== next.researchEnabled;
     data = next;
