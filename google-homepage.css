@@ -1,0 +1,33 @@
+#countdown-extension-dashboard {
+  width: min(760px, calc(100% - 32px));
+  margin: 24px auto 16px;
+  color: #000;
+  font-family: Arial, Helvetica, sans-serif;
+  text-align: center;
+}
+
+#countdown-extension-dashboard .countdown-extension-item { margin: 0 0 22px; }
+#countdown-extension-dashboard .countdown-extension-value {
+  margin: 0 0 5px;
+  font-size: clamp(1.8rem, 5vw, 3.2rem);
+  font-weight: 400;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+#countdown-extension-dashboard .countdown-extension-title,
+#countdown-extension-dashboard .countdown-extension-support {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+}
+#countdown-extension-dashboard .countdown-extension-support { margin-top: 4px; }
+#countdown-extension-dashboard .countdown-extension-link {
+  color: #000;
+  font-size: 12px;
+}
+@media (max-width: 440px) {
+  #countdown-extension-dashboard .countdown-extension-value {
+    white-space: normal;
+    font-size: 1.8rem;
+  }
+}

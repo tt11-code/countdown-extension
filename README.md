@@ -1,0 +1,38 @@
+# Minimalist Birthday & Milestone Countdown
+
+This is a Manifest V3 Chrome extension with two independent displays that share
+`chrome.storage.local` under the `countdownData` key:
+
+- `newtab.html` replaces Chrome's New Tab page and provides full add, edit,
+  delete, and birthday settings controls.
+- `google-homepage.js` is a narrowly scoped, read-only display for the exact
+  Google homepage paths `https://www.google.com/` and `https://www.google.ca/`.
+  It does not run on `/search` or other sites. It waits for Google's logo and
+  fails quietly if the page structure does not expose a compatible logo.
+
+Dates and optional times use the computer's local timezone. A date-only
+milestone is treated as midnight local time. February 29 birthdays are
+observed on February 28 in non-leap years. Countdown values are recalculated
+from the current time every second, so sleep and inactive tabs do not cause
+drift.
+
+## Load locally
+
+1. Open `chrome://extensions` in Chrome.
+2. Enable **Developer mode**.
+3. Choose **Load unpacked** and select this project folder.
+4. Open a new tab and enter a birthday. Add milestones with the links below
+   the countdown list.
+5. Refresh or close and reopen Chrome to verify persistence and ordering.
+6. Visit `https://www.google.com/` or `https://www.google.ca/` to verify the
+   shared read-only dashboard above Google's existing logo and search box.
+
+## Troubleshooting
+
+- After changing extension files, return to `chrome://extensions` and click
+  **Reload**, then open a fresh tab.
+- If saved data is not visible, confirm the extension is enabled and inspect
+  its service/storage errors in the extension's details page.
+- If Google changes its homepage markup, the content script intentionally
+  leaves the page unchanged rather than disrupting search. The New Tab
+  dashboard remains independent and continues to work.

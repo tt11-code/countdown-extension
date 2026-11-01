@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Countdowns</title>
+  <link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+  <main class="page">
+    <section id="dashboard" aria-live="polite"></section>
+
+    <p class="actions">
+      <button id="add-milestone-button" class="text-button" type="button">Add milestone</button>
+      <button id="settings-button" class="text-button" type="button">Settings</button>
+    </p>
+
+    <section id="milestone-form-container" class="form-container" hidden>
+      <h2 id="form-heading">Add milestone</h2>
+      <form id="milestone-form">
+        <input id="editing-id" type="hidden">
+        <label for="milestone-title">Title</label>
+        <input id="milestone-title" name="title" type="text" required maxlength="120">
+        <label for="milestone-date">Target date</label>
+        <input id="milestone-date" name="date" type="date" required>
+        <label for="milestone-time">Target time (optional)</label>
+        <input id="milestone-time" name="time" type="time">
+        <label for="milestone-subtitle">Subtitle (optional)</label>
+        <input id="milestone-subtitle" name="subtitle" type="text" maxlength="200">
+        <p id="form-error" class="form-error" role="alert"></p>
+        <div class="form-actions">
+          <button type="submit">Save</button>
+          <button id="cancel-form-button" type="button">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="settings-panel" class="form-container" hidden>
+      <h2>Settings</h2>
+      <form id="birthday-form">
+        <label for="birthday-date">Date of birth</label>
+        <input id="birthday-date" name="birthday" type="date" required>
+        <p id="birthday-error" class="form-error" role="alert"></p>
+        <div class="form-actions">
+          <button type="submit">Save birthday</button>
+          <button id="cancel-settings-button" type="button">Cancel</button>
+        </div>
+      </form>
+      <button id="manage-milestones-button" class="text-button" type="button">Manage milestones</button>
+    </section>
+
+    <section class="google-area" aria-label="Google search">
+      <a href="https://www.google.com/" aria-label="Google">
+        <img src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png" alt="Google">
+      </a>
+      <form id="search-form" class="search-form" action="https://www.google.com/search" method="get">
+        <label class="sr-only" for="search-input">Search</label>
+        <input id="search-input" name="q" type="search" autocomplete="off">
+      </form>
+    </section>
+  </main>
+  <script src="newtab.js"></script>
+</body>
+</html>
