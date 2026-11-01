@@ -1,3 +1,6 @@
+- [x] Add inspirations for different milestones
+- [ ] Filter by Recency
+      
 # Minimalist Birthday & Milestone Countdown
 
 This Manifest V3 extension replaces New Tab with a minimalist countdown
