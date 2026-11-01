@@ -46,6 +46,10 @@
     const result = await jsonPrompt(`Return JSON only with summary. Write one factual sentence using only this supplied source text. Do not claim facts absent from it.\nTitle: ${article.title}\nSource text: ${article.summary}`, fallback);
     return result && typeof result.summary === 'string' ? result.summary : article.summary;
   }
+  async function displayTitle(context, article, fallback) {
+    const result = await jsonPrompt(`Return JSON only with title. Write a short, factual, milestone-specific title explaining the relationship between the supplied source and milestone. Use only facts in the source text. If the source does not establish a specific achievement or age, use a cautious general title.\nMilestone: ${JSON.stringify(context)}\nArticle: ${JSON.stringify(article)}`, { title: fallback });
+    return result && typeof result.title === 'string' && result.title.trim() ? result.title.trim() : fallback;
+  }
   async function setup() {
     const model = getApi();
     if (!model) return 'unavailable';
@@ -66,5 +70,5 @@
       return 'unavailable';
     }
   }
-  window.CountdownAI = { availability, setup, interpret, rank, summarize };
+  window.CountdownAI = { availability, setup, interpret, rank, summarize, displayTitle };
 }());

@@ -84,14 +84,18 @@
         image.src = result.image;
         image.alt = '';
         image.loading = 'lazy';
+        image.addEventListener('error', () => image.remove(), { once: true });
         item.appendChild(image);
       }
       const title = document.createElement('a');
       title.href = result.url;
       title.target = '_blank';
       title.rel = 'noopener noreferrer';
-      title.textContent = result.title;
+      title.textContent = result.displayTitle || result.title;
       item.appendChild(title);
+      if (result.originalTitle && result.originalTitle !== result.displayTitle) {
+        item.appendChild(textElement('p', 'research-source-title', `Source: ${result.originalTitle}`));
+      }
       item.appendChild(textElement('p', 'research-summary', result.summary));
       researchColumns[index % 2].appendChild(item);
     });

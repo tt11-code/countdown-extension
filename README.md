@@ -20,9 +20,19 @@ Milestone inspiration uses public English Wikipedia MediaWiki results plus
 public GDELT article discovery through the extension service worker. It uses
 expanded concept-based fallback queries for employment, education, relocation,
 business, language learning, travel, sport, and age milestones. Results are
-filtered, deduplicated, URL-validated, and cached for 24 hours. GDELT results
+filtered, deduplicated, URL-validated, and cached for 24 hours. Age-specific
+results are accepted only when the article extract explicitly connects an
+achievement to the target age; a calendar year or generic use of “Age” is not
+evidence. GDELT results
 provide discovery metadata and links; the extension does not scrape or claim
 to have read publishers' full articles.
+
+Result records retain both the original source title and a separate
+milestone-specific display title. Article thumbnails are preferred; HTTPS
+GDELT `socialimage` metadata is accepted as a publisher image fallback. Broken
+images are removed without removing the result. Generic fallback images are
+not substituted, because an attractive but unrelated image would be
+misleading.
 
 Where supported, `local-ai.js` uses Chrome's current `LanguageModel` Prompt API
 on-device to interpret milestone intent, generate diverse queries, rank

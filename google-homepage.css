@@ -1,9 +1,12 @@
 #countdown-extension-dashboard {
+  display: block;
+  flex: none;
   width: min(760px, calc(100% - 32px));
   margin: 24px auto 16px;
   color: #000;
   font-family: Arial, Helvetica, sans-serif;
   text-align: center;
+  contain: layout style;
 }
 
 #countdown-extension-dashboard .countdown-extension-item { margin: 0 0 22px; }

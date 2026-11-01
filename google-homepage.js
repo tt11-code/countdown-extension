@@ -19,13 +19,16 @@
     const logo = Array.from(document.querySelectorAll('img[alt="Google"]')).find((image) => image.offsetParent !== null);
     const search = document.querySelector('input[name="q"], textarea[name="q"]');
     if (!logo || !search) return null;
-    let candidate = logo.parentElement;
-    while (candidate && candidate !== document.body) {
-      if (candidate.contains(search)) {
-        const logoChild = Array.from(candidate.children).find((child) => child === logo || child.contains(logo));
-        if (logoChild && logoChild.parentElement === candidate) return { candidate, logoChild };
+    let logoSection = logo.parentElement;
+    while (logoSection && logoSection !== document.body) {
+      const descendants = Array.from(logoSection.querySelectorAll('input[name="q"], textarea[name="q"]'));
+      const directChildren = Array.from(logoSection.children);
+      const logoBranch = directChildren.find((child) => child === logo || child.contains(logo));
+      const searchBranch = directChildren.find((child) => descendants.some((field) => child.contains(field)));
+      if (logoBranch && searchBranch && logoBranch !== searchBranch && directChildren.length <= 4) {
+        return { candidate: logoSection, logoBranch };
       }
-      candidate = candidate.parentElement;
+      logoSection = logoSection.parentElement;
     }
     return null;
   }
@@ -78,7 +81,8 @@
     if (!point || point.candidate.querySelector(':scope > #countdown-extension-dashboard')) return false;
     dashboard = document.createElement('section');
     dashboard.id = 'countdown-extension-dashboard';
-    point.candidate.insertBefore(dashboard, point.logoChild);
+    dashboard.setAttribute('aria-label', 'Countdown inspiration');
+    point.candidate.insertBefore(dashboard, point.logoBranch);
     load();
     return true;
   }
