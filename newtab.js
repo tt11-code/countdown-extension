@@ -12,9 +12,9 @@
     status: document.getElementById('research-status')
   };
   let data;
+  let research;
   let requestInFlight = false;
   let generation = 0;
-  let timerId;
   let errorText = '';
   let rejectionText = '';
 
@@ -23,6 +23,14 @@
     element.className = className;
     if (value !== undefined) element.textContent = value;
     return element;
+  }
+
+  function eligibleSignature(value) {
+    const context = CountdownResearch.eligibleContext(value);
+    if (!context) return '';
+    return context.id === 'birthday'
+      ? `birthday|${context.age}|${value.birthday}`
+      : CountdownResearch.milestoneSignature(context);
   }
 
   function renderCountdowns() {
@@ -34,7 +42,11 @@
         if (!data.birthdayEnabled || !data.birthday) return;
         const birthday = CountdownLogic.nextBirthday(data.birthday, now);
         const item = node('article', 'countdown-item');
-        item.append(node('p', 'countdown', CountdownLogic.formatDuration(birthday.target - now)), node('p', 'age-text', `Until I turn ${birthday.age} years old`));
+        item.appendChild(node('p', 'countdown', CountdownLogic.formatDuration(birthday.target - now)));
+        const age = node('p', 'age-text', 'Until I turn ');
+        age.appendChild(document.createElement('strong')).textContent = birthday.age;
+        age.appendChild(document.createTextNode(' years old'));
+        item.appendChild(age);
         dashboard.appendChild(item);
         return;
       }
@@ -42,7 +54,8 @@
       if (!milestone) return;
       const target = CountdownLogic.milestoneTarget(milestone);
       const item = node('article', 'countdown-item');
-      item.append(node('p', target && target > now ? 'countdown' : 'arrived', target && target > now ? CountdownLogic.formatDuration(target - now) : 'This milestone has arrived.'));
+      item.appendChild(node('p', target && target > now ? 'countdown' : 'arrived', target && target > now
+        ? CountdownLogic.formatDuration(target - now) : 'This milestone has arrived.'));
       item.appendChild(node('p', 'item-title', milestone.title));
       if (milestone.subtitle) item.appendChild(node('p', 'item-subtitle', milestone.subtitle));
       dashboard.appendChild(item);
@@ -54,9 +67,10 @@
   }
 
   function status(text) { controls.status.textContent = text || ''; }
+
   function pageState(pool) {
     const pages = Math.max(1, Math.ceil(pool.length / CountdownResearch.INSPIRATIONS_PER_PAGE));
-    const current = Math.min(pages, Math.max(1, Number(data.research.currentPage) || 1));
+    const current = Math.min(pages, Math.max(1, Number(research.currentPage) || 1));
     return { pages, current };
   }
 
@@ -64,11 +78,34 @@
     return String(name).trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase();
   }
 
+  function ageFromEvidence(item) {
+    const text = `${item.evidenceQuote || ''} ${item.achievement || ''} ${item.text || ''}`.toLowerCase();
+    for (let age = 1; age <= 20; age += 1) {
+      if (new RegExp(`\\b${age}\\b`).test(text)) return age;
+    }
+    return null;
+  }
+
+  function appendTitle(card, item) {
+    const title = node('p', 'research-title');
+    const context = CountdownResearch.eligibleContext(data);
+    const interpreted = context && CountdownResearch.interpret(context);
+    const age = item.ageAtAchievement || (interpreted && interpreted.type === 'age' ? ageFromEvidence(item) : null);
+    if (age) {
+      const prefix = document.createElement('strong');
+      prefix.textContent = `At ${age}`;
+      title.append(prefix, document.createTextNode(` · ${item.personName} — ${item.achievement}`));
+    } else {
+      title.textContent = item.displayTitle;
+    }
+    card.appendChild(title);
+  }
+
   function sourceLabel(item) {
     const domain = new URL(item.url).hostname.replace(/^www\./, '');
-    const published = item.publishedDate && !Number.isNaN(new Date(item.publishedDate).getTime())
+    const date = item.publishedDate && !Number.isNaN(new Date(item.publishedDate).getTime())
       ? ` · ${new Date(item.publishedDate).toLocaleDateString()}` : '';
-    return `Source: ${domain}${published}`;
+    return `Source: ${domain}${date}`;
   }
 
   function credit(item) {
@@ -85,8 +122,7 @@
     const imageBox = node('div', 'research-image-box');
     imageBox.appendChild(node('span', 'research-monogram', initials(item.personName)));
     card.appendChild(imageBox);
-    const title = node('p', 'research-title', item.displayTitle);
-    card.appendChild(title);
+    appendTitle(card, item);
     const source = node('a', 'research-source-link', sourceLabel(item));
     source.href = item.url;
     source.target = '_blank';
@@ -95,7 +131,7 @@
     const imageCredit = credit(item);
     if (imageCredit) card.appendChild(imageCredit);
     column.appendChild(card);
-    CountdownResearch.resolveImage(item).then(() => {
+    return CountdownResearch.resolveImage(item).then(() => {
       if (!card.isConnected) return;
       imageBox.replaceChildren();
       if (item.image) {
@@ -110,29 +146,31 @@
         }, { once: true });
         imageBox.appendChild(image);
         const nextCredit = credit(item);
-        if (nextCredit) {
-          const existing = card.querySelector('.research-image-credit');
-          if (existing) existing.replaceWith(nextCredit);
-          else card.appendChild(nextCredit);
-        }
+        const existing = card.querySelector('.research-image-credit');
+        if (nextCredit && existing) existing.replaceWith(nextCredit);
+        else if (nextCredit) card.appendChild(nextCredit);
       } else imageBox.appendChild(node('span', 'research-monogram', initials(item.personName)));
-      data.research.seenUrls = [...new Set([...(data.research.seenUrls || []), item.url])].slice(-300);
-      data.research.seenPeople = [...new Set([...(data.research.seenPeople || []), String(item.personName).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()])].slice(-200);
-      CountdownStorage.save(data).catch(() => {});
-    }).catch(() => {});
+    });
+  }
+
+  function poolKey(value) {
+    return JSON.stringify({
+      page: value.currentPage,
+      pool: (value.pool || []).map((item) => [item.url, item.personName, item.achievement, item.ageAtAchievement])
+    });
   }
 
   function renderResearch() {
     columns.forEach((column) => column.replaceChildren());
     controls.refresh.disabled = requestInFlight;
-    if (!data || !data.researchEnabled) {
+    if (!data || !data.researchEnabled || !research) {
       controls.previous.hidden = true;
       controls.next.hidden = true;
       controls.page.hidden = true;
       controls.refresh.hidden = true;
       return;
     }
-    const pool = Array.isArray(data.research.pool) ? data.research.pool : [];
+    const pool = Array.isArray(research.pool) ? research.pool : [];
     const state = pageState(pool);
     controls.previous.hidden = state.pages <= 1;
     controls.next.hidden = state.pages <= 1;
@@ -143,7 +181,14 @@
     controls.next.disabled = state.current >= state.pages || requestInFlight;
     const visible = pool.slice((state.current - 1) * CountdownResearch.INSPIRATIONS_PER_PAGE, state.current * CountdownResearch.INSPIRATIONS_PER_PAGE);
     if (visible.length % 2) visible.pop();
-    visible.forEach((item, index) => renderCard(item, columns[index % 2]));
+    const imageTasks = visible.map((item, index) => renderCard(item, columns[index % 2]));
+    Promise.allSettled(imageTasks).then(() => {
+      const nextSeenUrls = [...new Set([...(research.seenUrls || []), ...visible.map((item) => item.url)])].slice(-300);
+      const nextSeenPeople = [...new Set([...(research.seenPeople || []), ...visible.map((item) => String(item.personName).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim())])].slice(-200);
+      const nextResearch = Object.assign({}, research, { seenUrls: nextSeenUrls, seenPeople: nextSeenPeople });
+      research = nextResearch;
+      CountdownStorage.saveResearch(nextResearch).catch(() => {});
+    });
     if (errorText) status(errorText);
     else if (rejectionText) status(rejectionText);
     else if (!pool.length && !requestInFlight) status('No suitable inspiration found for this milestone.');
@@ -169,13 +214,21 @@
     try {
       const result = await CountdownResearch.getOrFetch(data, forceRefresh, status);
       if (currentGeneration !== generation) return;
-      data = result.data;
-      if (result.rejectionCounts) {
-        const rejected = Object.values(result.rejectionCounts).reduce((total, count) => total + count, 0);
-        if (!result.pool.length && rejected) rejectionText = `Results were found but none passed filtering (${rejected} rejected).`;
-      }
-      status('');
+      research = result.research;
       renderResearch();
+      if (result.rejectionCounts && !result.pool.length) {
+        const rejected = Object.values(result.rejectionCounts).reduce((total, count) => total + count, 0);
+        if (rejected) rejectionText = `Results were found but none passed filtering (${rejected} rejected).`;
+      }
+      if (result.stale && result.refreshPromise) {
+        result.refreshPromise.then((fresh) => {
+          if (currentGeneration !== generation) return;
+          research = fresh.research;
+          errorText = '';
+          rejectionText = '';
+          renderResearch();
+        }).catch(() => {});
+      }
     } catch (error) {
       if (currentGeneration !== generation) return;
       const messages = {
@@ -183,7 +236,8 @@
         unauthorized: 'The Exa API key is invalid.',
         'no-credits': 'The Exa API key is out of credits.',
         'rate-limited': 'Exa is rate limiting requests. Try again later.',
-        network: 'Exa could not be reached due to a network error or timeout.'
+        timeout: 'Exa timed out while searching. Try Refresh inspiration.',
+        network: 'Exa could not be reached due to a network error.'
       };
       errorText = messages[error.code] || `Unable to load inspiration (${error.code}${error.detail ? `: ${error.detail}` : ''}).`;
       renderResearch();
@@ -196,26 +250,44 @@
   }
 
   function changePage(delta) {
-    const state = pageState(data.research.pool || []);
-    data.research.currentPage = Math.min(state.pages, Math.max(1, state.current + delta));
-    CountdownStorage.save(data).then(renderResearch).catch(() => {});
+    const state = pageState(research.pool || []);
+    research.currentPage = Math.min(state.pages, Math.max(1, state.current + delta));
+    CountdownStorage.saveResearch(research).then(renderResearch).catch(() => {});
   }
 
   controls.previous.addEventListener('click', () => changePage(-1));
   controls.next.addEventListener('click', () => changePage(1));
   controls.refresh.addEventListener('click', () => loadResearch(true));
+
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!changes[CountdownStorage.STORAGE_KEY]) return;
-    data = CountdownStorage.normalize(changes[CountdownStorage.STORAGE_KEY].newValue);
-    renderCountdowns();
-    renderResearch();
+    if (changes[CountdownStorage.STORAGE_KEY]) {
+      const next = CountdownStorage.normalize(changes[CountdownStorage.STORAGE_KEY].newValue);
+      const changed = !data || eligibleSignature(data) !== eligibleSignature(next) || data.researchEnabled !== next.researchEnabled;
+      data = next;
+      renderCountdowns();
+      if (changed) {
+        generation += 1;
+        requestInFlight = false;
+        loadResearch(false);
+      }
+    }
+    if (changes[CountdownStorage.RESEARCH_STORAGE_KEY]) {
+      CountdownStorage.getResearch().then((next) => {
+        if (!research || poolKey(research) !== poolKey(next)) {
+          research = next;
+          renderResearch();
+        } else research = next;
+      }).catch(() => {});
+    }
   });
 
-  CountdownStorage.get().then((stored) => {
+  Promise.all([CountdownStorage.get(), CountdownStorage.getResearch()]).then(([stored, storedResearch]) => {
     data = stored;
+    research = storedResearch;
     renderCountdowns();
+    renderResearch();
     loadResearch(false);
-    timerId = window.setInterval(renderCountdowns, 1000);
+    window.setInterval(renderCountdowns, 1000);
   }).catch((error) => { message.textContent = `Unable to load saved countdowns: ${error.message}`; });
 }());

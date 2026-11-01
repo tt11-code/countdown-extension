@@ -19,7 +19,11 @@
 
   async function fetchJson(url, options) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 45000);
     try {
       const response = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
       let payload = null;
@@ -33,7 +37,12 @@
       }
       return payload;
     } catch (error) {
-      if (error.name === 'AbortError' || error.name === 'TypeError') {
+      if (timedOut) {
+        const timeoutError = new Error('Remote request timed out.');
+        timeoutError.code = 'timeout';
+        throw timeoutError;
+      }
+      if (error.name === 'TypeError') {
         const networkError = new Error('Network request timed out or failed.');
         networkError.code = 'network';
         throw networkError;
@@ -55,15 +64,16 @@
     const request = {
       query: String(message.query || ''),
       type: 'auto',
-      numResults: Math.min(15, Math.max(1, Number(message.numResults) || 15)),
+      numResults: Math.min(15, Math.max(1, Number(message.numResults) || 10)),
       contents: {
         highlights: true,
         summary: {
-          query: 'Extract only facts stated on this page. If the page does not state a named person’s specific achievement, set personName null and isRelevant false. evidenceQuote must be copied verbatim from the page.',
+          query: 'Extract only facts stated on this page. If the page does not state a named person’s specific achievement, set personName empty and isRelevant false. Use age 0 if no age is stated. evidenceQuote must be copied verbatim from the page.',
           schema: message.schema
         }
       }
     };
+    const startedAt = Date.now();
     try {
       const payload = await fetchJson(EXA_ENDPOINT, {
         method: 'POST',
@@ -71,7 +81,7 @@
         body: JSON.stringify(request)
       });
       // TEMP-DEBUG
-      console.debug('[Exa] results:', Array.isArray(payload.results) ? payload.results.length : 0);
+      console.debug('[Exa] results:', Array.isArray(payload.results) ? payload.results.length : 0, 'durationMs:', Date.now() - startedAt);
       (Array.isArray(payload.results) ? payload.results.slice(0, 2) : []).forEach((result) => {
         console.debug('[Exa] result:', result.title, typeof result.summary, String(result.summary).slice(0, 300));
       });

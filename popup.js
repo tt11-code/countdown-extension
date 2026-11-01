@@ -75,6 +75,13 @@
     return new Promise((resolve) => chrome.runtime.sendMessage(message, resolve));
   }
 
+  async function updateData(mutator) {
+    const latest = await CountdownStorage.get();
+    mutator(latest);
+    data = await CountdownStorage.save(latest);
+    return data;
+  }
+
   document.getElementById('add-button').addEventListener('click', () => openEditor());
   document.getElementById('cancel-button').addEventListener('click', () => { editor.hidden = true; });
   document.getElementById('birthday-form').addEventListener('submit', async (event) => {
@@ -84,29 +91,29 @@
       showMessage('birthday-message', 'Enter a valid date of birth in the past.');
       return;
     }
-    data.birthday = birthday;
-    data.birthdayEnabled = document.getElementById('birthday-enabled').checked;
-    if (!data.order.includes('birthday')) data.order.unshift('birthday');
-    await CountdownStorage.save(data);
+    await updateData((latest) => {
+      latest.birthday = birthday;
+      latest.birthdayEnabled = document.getElementById('birthday-enabled').checked;
+      if (!latest.order.includes('birthday')) latest.order.unshift('birthday');
+    });
     showMessage('birthday-message', 'Birthday saved.');
   });
   document.getElementById('remove-birthday-button').addEventListener('click', async () => {
-    data.birthday = '';
-    data.birthdayEnabled = false;
-    data.order = data.order.filter((id) => id !== 'birthday');
-    await CountdownStorage.save(data);
+    await updateData((latest) => {
+      latest.birthday = '';
+      latest.birthdayEnabled = false;
+      latest.order = latest.order.filter((id) => id !== 'birthday');
+    });
     render();
     showMessage('birthday-message', 'Saved birthday removed.');
   });
   document.getElementById('birthday-enabled').addEventListener('change', async (event) => {
-    data.birthdayEnabled = event.target.checked;
-    if (data.birthday) await CountdownStorage.save(data);
+    if (data.birthday) await updateData((latest) => { latest.birthdayEnabled = event.target.checked; });
     else showMessage('birthday-message', 'Save a birthday to apply this setting.');
   });
   document.getElementById('research-enabled').addEventListener('change', async (event) => {
     if (!hasKey) return;
-    data.researchEnabled = event.target.checked;
-    await CountdownStorage.save(data);
+    await updateData((latest) => { latest.researchEnabled = event.target.checked; });
   });
 
   document.getElementById('save-exa-key').addEventListener('click', async () => {
@@ -123,8 +130,7 @@
     if (!response.ok) { showMessage('exa-status', 'Unable to save the key.'); return; }
     hasKey = true;
     document.getElementById('exa-key').value = `••••${key.slice(-4)}`;
-    data.researchEnabled = true;
-    await CountdownStorage.save(data);
+    await updateData((latest) => { latest.researchEnabled = true; });
     updateResearchGate();
     showMessage('exa-status', `Key saved as ••••${key.slice(-4)}.`);
   });
@@ -139,8 +145,7 @@
     if (!response.ok) { showMessage('exa-status', 'Unable to remove the key.'); return; }
     hasKey = false;
     document.getElementById('exa-key').value = '';
-    data.researchEnabled = false;
-    await CountdownStorage.save(data);
+    await updateData((latest) => { latest.researchEnabled = false; });
     updateResearchGate();
     showMessage('exa-status', 'Exa API key removed.');
   });
@@ -163,18 +168,24 @@
     } else if (action === 'delete') { pendingDeleteId = row.dataset.id; render(); }
     else if (action === 'cancel-delete') { pendingDeleteId = ''; render(); }
     else if (action === 'confirm-delete') {
-      data.milestones = data.milestones.filter((item) => item.id !== row.dataset.id);
-      data.order.splice(index, 1);
+      await updateData((latest) => {
+        latest.milestones = latest.milestones.filter((item) => item.id !== row.dataset.id);
+        const latestIndex = latest.order.indexOf(row.dataset.id);
+        if (latestIndex >= 0) latest.order.splice(latestIndex, 1);
+      });
       pendingDeleteId = '';
-      await CountdownStorage.save(data);
       render();
     } else if (action === 'up' && index > 0) {
-      [data.order[index - 1], data.order[index]] = [data.order[index], data.order[index - 1]];
-      await CountdownStorage.save(data);
+      await updateData((latest) => {
+        const latestIndex = latest.order.indexOf(row.dataset.id);
+        if (latestIndex > 0) [latest.order[latestIndex - 1], latest.order[latestIndex]] = [latest.order[latestIndex], latest.order[latestIndex - 1]];
+      });
       render();
     } else if (action === 'down' && index < data.order.length - 1) {
-      [data.order[index + 1], data.order[index]] = [data.order[index], data.order[index + 1]];
-      await CountdownStorage.save(data);
+      await updateData((latest) => {
+        const latestIndex = latest.order.indexOf(row.dataset.id);
+        if (latestIndex >= 0 && latestIndex < latest.order.length - 1) [latest.order[latestIndex + 1], latest.order[latestIndex]] = [latest.order[latestIndex], latest.order[latestIndex + 1]];
+      });
       render();
     }
   });
@@ -189,10 +200,17 @@
       subtitle: document.getElementById('milestone-subtitle').value.trim()
     };
     if (!entry.title || !CountdownLogic.parseDateOnly(entry.date)) { showMessage('editor-message', 'Enter a title and valid target date.'); return; }
-    const index = data.milestones.findIndex((item) => item.id === entry.id);
-    if (index < 0) { data.milestones.push(entry); data.order.push(entry.id); } else data.milestones[index] = entry;
-    await CountdownStorage.save(data);
+    await updateData((latest) => {
+      const index = latest.milestones.findIndex((item) => item.id === entry.id);
+      if (index < 0) { latest.milestones.push(entry); latest.order.push(entry.id); } else latest.milestones[index] = entry;
+    });
     editor.hidden = true;
+    render();
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes[CountdownStorage.STORAGE_KEY]) return;
+    data = CountdownStorage.normalize(changes[CountdownStorage.STORAGE_KEY].newValue);
     render();
   });
 

@@ -4,6 +4,7 @@
   const RESEARCH_VERSION = 5;
   const INSPIRATIONS_PER_PAGE = 4;
   const CACHE_MAX_AGE = 1000 * 60 * 60 * 24;
+  const ATTEMPT_COOLDOWN = 1000 * 60 * 30;
   const API_ROOT = 'https://en.wikipedia.org/w/api.php';
   const FILLER_PHRASES = [
     /^until\s+i\s+/i, /^until\s+/i, /^i\s+will\s+/i, /^become\s+(?:a|an)\s+/i,
@@ -22,6 +23,10 @@
     'youngest {topic} in history', 'first in their family to become a {topic}',
     'people who changed careers to become a {topic}'
   ];
+  const EMPTY_REJECTIONS = () => ({
+    noUrl: 0, listicle: 0, notRelevant: 0, noPerson: 0, noAchievement: 0,
+    noEvidence: 0, ageMismatch: 0, duplicate: 0, topicMismatch: 0
+  });
 
   function eligibleContext(data) {
     const birthday = data.birthdayEnabled && data.birthday ? {
@@ -86,19 +91,15 @@
     return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
-  function containsEvidence(result, quote) {
-    const evidence = normalizedText(quote);
+  function evidenceInSource(result, quote) {
     const source = normalizedText([result.text, ...(Array.isArray(result.highlights) ? result.highlights : [])].join(' '));
-    if (!evidence || !source) return false;
-    if (source.includes(evidence)) return true;
-    const words = evidence.split(' ').filter((word) => word.length > 2);
-    return words.length >= 5 && words.filter((word) => source.includes(word)).length / words.length >= 0.75;
+    return Boolean(source && normalizedText(quote) && source.includes(normalizedText(quote)));
   }
 
   const numberWords = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
-  function hasAgeEvidence(quote, ages) {
-    const text = normalizedText(quote);
-    return ages.some((age) => new RegExp(`\\b${age}\\b`).test(text) || text.includes(numberWords[age] || '__missing__'));
+  function hasAgeEvidence(text, ages) {
+    const normalized = normalizedText(text);
+    return ages.some((age) => new RegExp(`\\b${age}\\b`).test(normalized) || normalized.includes(numberWords[age] || '__missing__'));
   }
 
   function ageFromText(text, ages) {
@@ -131,22 +132,26 @@
   function templateChoice(interpreted, used, attempt, forceRefresh) {
     const templates = interpreted.type === 'age' ? AGE_TEMPLATES : TOPIC_TEMPLATES;
     const age = interpreted.type === 'age' ? interpreted.ages[attempt % interpreted.ages.length] : null;
-    const eligibleTemplates = templates.filter((template) => !(template.startsWith('teenager') && age >= 20));
-    const candidates = eligibleTemplates.map((template) => ({ template, key: `${interpreted.type}-${templates.indexOf(template)}` }))
-      .filter((entry) => !used.includes(entry.key));
-    const wrappedTemplates = eligibleTemplates.map((template) => ({ template, key: `${interpreted.type}-${templates.indexOf(template)}` }));
-    const entry = candidates[attempt] || wrappedTemplates[attempt % wrappedTemplates.length];
+    const eligible = templates.filter((template) => !(template.startsWith('teenager') && age >= 20));
+    const entries = eligible.map((template) => ({ template, key: `${interpreted.type}-${templates.indexOf(template)}` }));
+    const unused = entries.filter((entry) => !used.includes(entry.key));
+    const entry = unused[attempt] || entries[attempt % entries.length];
     if (interpreted.type === 'age' && !forceRefresh && attempt === 0) {
       return { key: entry.key, query: `${interpreted.age} year old person accolades` };
     }
     const keyword = KEYWORDS[(used.length + attempt) % KEYWORDS.length];
-    const templateText = entry.template.toLowerCase();
-    const keywordText = KEYWORDS[(used.length + attempt) % KEYWORDS.length];
-    const suffix = templateText.includes(keywordText.toLowerCase()) ? '' : ` ${keywordText}`;
-    if (interpreted.type === 'age') {
-      return { key: entry.key, query: `${entry.template.replace('{a}', age)}${suffix}` };
-    }
-    return { key: entry.key, query: `${entry.template.replace('{topic}', interpreted.topic)}${suffix}` };
+    const suffix = entry.template.toLowerCase().includes(keyword.toLowerCase()) ? '' : ` ${keyword}`;
+    return {
+      key: entry.key,
+      query: `${entry.template.replace('{a}', age).replace('{topic}', interpreted.topic)}${suffix}`
+    };
+  }
+
+  function canonicalImage(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' ? url.href : '';
+    } catch (error) { return ''; }
   }
 
   function validateResult(result, interpreted, seenUrls, seenPeople) {
@@ -158,15 +163,11 @@
     summary = summary && typeof summary === 'object' ? summary : {};
     const highlights = Array.isArray(result.highlights) ? result.highlights : [];
     const sourceText = String(result.text || highlights[0] || '');
-    let evidenceQuote = typeof summary.evidenceQuote === 'string' && summary.evidenceQuote.trim()
-      ? summary.evidenceQuote.trim()
-      : (highlights[0] || sourceText.split(/(?<=[.!?])\s+/)[0] || '');
-    if (!containsEvidence(result, evidenceQuote)) {
+    let evidenceQuote = typeof summary.evidenceQuote === 'string' ? summary.evidenceQuote.trim() : '';
+    if ((!evidenceQuote || !evidenceInSource(result, evidenceQuote)) && (highlights.length || sourceText)) {
       evidenceQuote = highlights[0] || sourceText.split(/(?<=[.!?])\s+/)[0] || '';
     }
-    const achievement = typeof summary.achievement === 'string' && summary.achievement.trim()
-      ? summary.achievement.trim()
-      : evidenceQuote;
+    const achievement = typeof summary.achievement === 'string' ? summary.achievement.trim() : '';
     const item = {
       url,
       originalTitle: String(result.title || ''),
@@ -181,8 +182,7 @@
       text: sourceText,
       highlights
     };
-    if (!item.url) return { item: null, reason: 'noUrl' };
-    if (!item.originalTitle) return { item: null, reason: 'noUrl' };
+    if (!item.url || !item.originalTitle) return { item: null, reason: 'noUrl' };
     if (/listicle|roundup|collection/i.test(item.kind)) return { item: null, reason: 'listicle' };
     if (!item.isRelevant) return { item: null, reason: 'notRelevant' };
     if (!item.personName) return { item: null, reason: 'noPerson' };
@@ -190,11 +190,9 @@
     if (!item.evidenceQuote) return { item: null, reason: 'noEvidence' };
     if (seenUrls.has(item.url) || seenPeople.has(normalizePerson(item.personName))) return { item: null, reason: 'duplicate' };
     if (interpreted.type === 'age') {
-      const ageInEvidence = hasAgeEvidence(`${item.evidenceQuote} ${item.achievement} ${item.text}`, interpreted.ages);
-      if (!interpreted.ages.includes(item.ageAtAchievement) && !ageInEvidence) return { item: null, reason: 'ageMismatch' };
-      if (!interpreted.ages.includes(item.ageAtAchievement) && ageInEvidence) {
-        item.ageAtAchievement = ageFromText(`${item.evidenceQuote} ${item.achievement} ${item.text}`, interpreted.ages);
-      }
+      const ageText = `${item.evidenceQuote} ${item.achievement} ${item.text}`;
+      if (!interpreted.ages.includes(item.ageAtAchievement) && !hasAgeEvidence(ageText, interpreted.ages)) return { item: null, reason: 'ageMismatch' };
+      item.ageAtAchievement = interpreted.ages.includes(item.ageAtAchievement) ? item.ageAtAchievement : ageFromText(ageText, interpreted.ages);
     }
     if (interpreted.type === 'topic' && !topicEvidence(item, interpreted.topic)) return { item: null, reason: 'topicMismatch' };
     item.displayTitle = `${item.personName} — ${item.achievement}`.slice(0, 90).trim();
@@ -202,15 +200,8 @@
     return { item, reason: '' };
   }
 
-  function canonicalImage(value) {
-    try {
-      const url = new URL(value);
-      return url.protocol === 'https:' ? url.href : '';
-    } catch (error) { return ''; }
-  }
-
   async function search(query) {
-    const response = await request({ type: 'exaSearch', query, numResults: 15, schema: schema() });
+    const response = await request({ type: 'exaSearch', query, numResults: 10, schema: schema() });
     return response.results || [];
   }
 
@@ -221,11 +212,9 @@
     const pool = [];
     const allPool = [];
     const chosenKeys = [];
-    const rejected = {
-      noUrl: 0, listicle: 0, notRelevant: 0, noPerson: 0, noAchievement: 0,
-      noEvidence: 0, ageMismatch: 0, duplicate: 0, topicMismatch: 0
-    };
-    for (let attempt = 0; attempt < 2 && pool.length < 8; attempt += 1) {
+    const rejected = EMPTY_REJECTIONS();
+    const attempts = forceRefresh ? 2 : 1;
+    for (let attempt = 0; attempt < attempts && pool.length < 8; attempt += 1) {
       const choice = templateChoice(interpreted, [...used, ...chosenKeys], attempt, forceRefresh);
       chosenKeys.push(choice.key);
       status('Searching sources…');
@@ -257,6 +246,8 @@
     return {
       pool: pool.slice(0, 12),
       allPool: allPool.slice(0, 12),
+      seenUrls: [...seenUrls],
+      seenPeople: [...seenPeople],
       rejected,
       usedTemplateKeys: [...new Set([...used, ...chosenKeys])].slice(-AGE_TEMPLATES.length - TOPIC_TEMPLATES.length)
     };
@@ -264,10 +255,8 @@
 
   async function wikiImage(personName) {
     const url = `${API_ROOT}?${new URLSearchParams({
-      action: 'query', format: 'json', formatversion: '2', origin: '*',
-      prop: 'extracts|pageimages|info', exintro: '1', explaintext: '1',
-      piprop: 'thumbnail', pithumbsize: '320', inprop: 'url', redirects: '1',
-      titles: personName
+      action: 'query', format: 'json', formatversion: '2', origin: '*', prop: 'extracts|pageimages|info',
+      exintro: '1', explaintext: '1', piprop: 'thumbnail', pithumbsize: '320', inprop: 'url', redirects: '1', titles: personName
     })}`;
     const response = await request({ type: 'fetchResearch', method: 'GET', url });
     const page = response.payload && response.payload.query && response.payload.query.pages && response.payload.query.pages[0];
@@ -287,43 +276,61 @@
     return item;
   }
 
-  async function getOrFetch(data, forceRefresh, status) {
-    const context = eligibleContext(data);
-    if (!context) return { data, pool: [] };
-    const interpreted = interpret(context);
-    const signature = context.id === 'birthday' ? `birthday|${interpreted.age}|${data.birthday}` : milestoneSignature(context);
-    const cache = data.research;
-    if (!forceRefresh && cache.researchVersion === RESEARCH_VERSION && cache.milestoneSignature === signature
-      && Date.now() - Number(cache.fetchedAt) < CACHE_MAX_AGE && Array.isArray(cache.pool) && cache.pool.length) return { data, pool: cache.pool };
-    const result = await fetchPool(interpreted, cache, forceRefresh, status);
-    if (forceRefresh && result.pool.length < INSPIRATIONS_PER_PAGE && (cache.seenUrls || []).length) {
-      status("You've seen most available inspirations, starting over.");
-      result.pool = result.allPool;
-    }
-    if (!result.pool.length) {
-      return {
-        data: Object.assign({}, data, {
-          research: Object.assign({}, data.research, { pool: [] })
-        }),
-        pool: [],
-        rejectionCounts: result.rejected
-      };
-    }
-    const updated = Object.assign({}, data, {
-      research: {
+  async function fetchAndStore(data, context, interpreted, signature, cache, forceRefresh, status) {
+    try {
+      const result = await fetchPool(interpreted, cache, forceRefresh, status);
+      const now = Date.now();
+      const research = Object.assign({}, cache, {
         researchVersion: RESEARCH_VERSION,
         milestoneId: context.id,
         milestoneSignature: signature,
-        fetchedAt: Date.now(),
-        currentPage: 1,
-        pool: result.pool,
-        seenUrls: forceRefresh && result.pool.length >= INSPIRATIONS_PER_PAGE ? cache.seenUrls || [] : [],
-        seenPeople: forceRefresh && result.pool.length >= INSPIRATIONS_PER_PAGE ? cache.seenPeople || [] : [],
-        usedTemplateKeys: result.usedTemplateKeys
+        lastAttemptAt: now,
+        lastAttemptStatus: result.pool.length ? 'ok' : 'empty',
+        rejectionCounts: result.rejected,
+        usedTemplateKeys: result.usedTemplateKeys,
+        seenUrls: [...new Set([...(forceRefresh ? [] : cache.seenUrls), ...result.seenUrls])],
+        seenPeople: [...new Set([...(forceRefresh ? [] : cache.seenPeople), ...result.seenPeople])]
+      });
+      if ((forceRefresh && result.pool.length) || result.pool.length >= INSPIRATIONS_PER_PAGE || !cache.pool.length) {
+        research.pool = result.pool;
+        research.fetchedAt = result.pool.length ? now : cache.fetchedAt;
+        research.currentPage = 1;
+        if (!result.pool.length) research.seenUrls = cache.seenUrls;
+        if (!result.pool.length) research.seenPeople = cache.seenPeople;
       }
-    });
-    await CountdownStorage.save(updated);
-    return { data: updated, pool: result.pool, rejectionCounts: result.rejected };
+      const saved = await CountdownStorage.saveResearch(research);
+      return { data, pool: saved.pool, research: saved, rejectionCounts: result.rejected };
+    } catch (error) {
+      const failed = Object.assign({}, cache, {
+        researchVersion: RESEARCH_VERSION,
+        milestoneId: context.id,
+        milestoneSignature: signature,
+        lastAttemptAt: Date.now(),
+        lastAttemptStatus: 'error'
+      });
+      await CountdownStorage.saveResearch(failed);
+      throw error;
+    }
+  }
+
+  async function getOrFetch(data, forceRefresh, status) {
+    const context = eligibleContext(data);
+    if (!context) return { data, pool: [], research: await CountdownStorage.getResearch() };
+    const interpreted = interpret(context);
+    const signature = context.id === 'birthday' ? `birthday|${interpreted.age}|${data.birthday}` : milestoneSignature(context);
+    const cache = await CountdownStorage.getResearch();
+    const matching = cache.researchVersion === RESEARCH_VERSION && cache.milestoneSignature === signature;
+    const age = Date.now() - Number(cache.fetchedAt);
+    if (!forceRefresh && matching && cache.pool.length && age < CACHE_MAX_AGE) return { data, pool: cache.pool, research: cache };
+    if (!forceRefresh && matching && cache.lastAttemptAt && Date.now() - cache.lastAttemptAt < ATTEMPT_COOLDOWN
+      && (cache.lastAttemptStatus === 'empty' || cache.lastAttemptStatus === 'error')) {
+      return { data, pool: cache.pool, research: cache, throttled: true };
+    }
+    if (!forceRefresh && matching && cache.pool.length && age >= CACHE_MAX_AGE) {
+      const refreshPromise = fetchAndStore(data, context, interpreted, signature, cache, false, status);
+      return { data, pool: cache.pool, research: cache, stale: true, refreshPromise };
+    }
+    return fetchAndStore(data, context, interpreted, signature, cache, forceRefresh, status);
   }
 
   window.CountdownResearch = {

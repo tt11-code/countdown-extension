@@ -1,9 +1,10 @@
 # Minimalist Birthday & Milestone Countdown
 
 This Manifest V3 extension replaces New Tab with a minimalist countdown
-dashboard. Birthday data and milestones remain under `countdownData` in
-`chrome.storage.local`; the Google homepage content script remains a separate,
-conservative integration.
+dashboard. Birthday data, settings, and milestones remain under `countdownData`
+in `chrome.storage.local`; research state is stored separately under
+`countdownResearch`. The Google homepage content script reads only
+`countdownData` and remains a separate, conservative integration.
 
 ## Inspiration requires your Exa key
 
@@ -52,7 +53,9 @@ exhausted.
 
 Automatic loads reuse a 24-hour cache keyed by milestone signature. The cache
 stores the pool, current page, seen URLs, seen people, template keys, fetch
-time, and research version. Refresh failures retain the previous pool.
+time, attempt status, and research version. Empty and error attempts are
+throttled for 30 minutes, while stale pools are shown immediately and refreshed
+in the background. Refresh failures retain the previous pool.
 
 ## Images and attribution
 

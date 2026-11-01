@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'countdownData';
+  const RESEARCH_STORAGE_KEY = 'countdownResearch';
   const RESEARCH_VERSION = 5;
 
   function makeId() {
@@ -28,25 +29,30 @@
       if (!order.includes(milestone.id)) order.push(milestone.id);
     });
     if (source.birthday && !order.includes('birthday')) order.unshift('birthday');
-    const storedResearch = source.research && typeof source.research === 'object' ? source.research : {};
-    const research = {
-      researchVersion: Number.isInteger(storedResearch.researchVersion) ? storedResearch.researchVersion : RESEARCH_VERSION,
-      milestoneId: typeof storedResearch.milestoneId === 'string' ? storedResearch.milestoneId : '',
-      milestoneSignature: typeof storedResearch.milestoneSignature === 'string' ? storedResearch.milestoneSignature : '',
-      fetchedAt: Number(storedResearch.fetchedAt) || 0,
-      currentPage: Math.max(1, Number(storedResearch.currentPage) || 1),
-      pool: Array.isArray(storedResearch.pool) ? storedResearch.pool : [],
-      seenUrls: Array.isArray(storedResearch.seenUrls) ? storedResearch.seenUrls.filter((value) => typeof value === 'string').slice(-300) : [],
-      seenPeople: Array.isArray(storedResearch.seenPeople) ? storedResearch.seenPeople.filter((value) => typeof value === 'string').slice(-200) : [],
-      usedTemplateKeys: Array.isArray(storedResearch.usedTemplateKeys) ? storedResearch.usedTemplateKeys.filter((value) => typeof value === 'string') : []
-    };
     return {
       birthday: typeof source.birthday === 'string' ? source.birthday : '',
       birthdayEnabled: source.birthdayEnabled !== false,
       researchEnabled: source.researchEnabled !== false,
       milestones: normalizedMilestones,
-      order,
-      research
+      order
+    };
+  }
+
+  function normalizeResearch(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+      researchVersion: Number.isInteger(source.researchVersion) ? source.researchVersion : RESEARCH_VERSION,
+      milestoneId: typeof source.milestoneId === 'string' ? source.milestoneId : '',
+      milestoneSignature: typeof source.milestoneSignature === 'string' ? source.milestoneSignature : '',
+      fetchedAt: Number(source.fetchedAt) || 0,
+      lastAttemptAt: Number(source.lastAttemptAt) || 0,
+      lastAttemptStatus: ['ok', 'empty', 'error'].includes(source.lastAttemptStatus) ? source.lastAttemptStatus : '',
+      currentPage: Math.max(1, Number(source.currentPage) || 1),
+      pool: Array.isArray(source.pool) ? source.pool : [],
+      seenUrls: Array.isArray(source.seenUrls) ? source.seenUrls.filter((value) => typeof value === 'string').slice(-300) : [],
+      seenPeople: Array.isArray(source.seenPeople) ? source.seenPeople.filter((value) => typeof value === 'string').slice(-200) : [],
+      usedTemplateKeys: Array.isArray(source.usedTemplateKeys) ? source.usedTemplateKeys.filter((value) => typeof value === 'string') : [],
+      rejectionCounts: source.rejectionCounts && typeof source.rejectionCounts === 'object' ? source.rejectionCounts : {}
     };
   }
 
@@ -57,7 +63,37 @@
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
-        resolve(normalize(result[STORAGE_KEY]));
+        const source = result[STORAGE_KEY];
+        const normalized = normalize(source);
+        if (source && source.research && typeof source.research === 'object') {
+          chrome.storage.local.set({
+            [STORAGE_KEY]: normalized,
+            [RESEARCH_STORAGE_KEY]: normalizeResearch(source.research)
+          }, () => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else resolve(normalized);
+          });
+        } else resolve(normalized);
+      });
+    });
+  }
+
+  function getResearch() {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get([RESEARCH_STORAGE_KEY, STORAGE_KEY], (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        const legacy = result[RESEARCH_STORAGE_KEY] || (result[STORAGE_KEY] && result[STORAGE_KEY].research);
+        const research = normalizeResearch(legacy);
+        const cleanup = () => {
+          if (!result[RESEARCH_STORAGE_KEY] && result[STORAGE_KEY] && result[STORAGE_KEY].research) {
+            const migrated = normalize(result[STORAGE_KEY]);
+            chrome.storage.local.set({ [STORAGE_KEY]: migrated, [RESEARCH_STORAGE_KEY]: research }, () => resolve(research));
+          } else resolve(research);
+        };
+        cleanup();
       });
     });
   }
@@ -66,14 +102,32 @@
     const normalized = normalize(data);
     return new Promise((resolve, reject) => {
       chrome.storage.local.set({ [STORAGE_KEY]: normalized }, () => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        resolve(normalized);
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(normalized);
       });
     });
   }
 
-  window.CountdownStorage = { STORAGE_KEY, RESEARCH_VERSION, makeId, normalize, get, save };
+  function saveResearch(research) {
+    const normalized = normalizeResearch(research);
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.set({ [RESEARCH_STORAGE_KEY]: normalized }, () => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(normalized);
+      });
+    });
+  }
+
+  window.CountdownStorage = {
+    STORAGE_KEY,
+    RESEARCH_STORAGE_KEY,
+    RESEARCH_VERSION,
+    makeId,
+    normalize,
+    normalizeResearch,
+    get,
+    getResearch,
+    save,
+    saveResearch
+  };
 }());
