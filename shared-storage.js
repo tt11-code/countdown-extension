@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'countdownData';
   const RESEARCH_STORAGE_KEY = 'countdownResearch';
-  const RESEARCH_VERSION = 5;
+  const RESEARCH_VERSION = 6;
 
   function makeId() {
     return typeof crypto !== 'undefined' && crypto.randomUUID

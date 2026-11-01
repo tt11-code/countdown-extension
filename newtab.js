@@ -78,19 +78,11 @@
     return String(name).trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase();
   }
 
-  function ageFromEvidence(item) {
-    const text = `${item.evidenceQuote || ''} ${item.achievement || ''} ${item.text || ''}`.toLowerCase();
-    for (let age = 1; age <= 20; age += 1) {
-      if (new RegExp(`\\b${age}\\b`).test(text)) return age;
-    }
-    return null;
-  }
-
   function appendTitle(card, item) {
     const title = node('p', 'research-title');
     const context = CountdownResearch.eligibleContext(data);
     const interpreted = context && CountdownResearch.interpret(context);
-    const age = item.ageAtAchievement || (interpreted && interpreted.type === 'age' ? ageFromEvidence(item) : null);
+    const age = item.ageAtAchievement || (interpreted && interpreted.type === 'age' ? interpreted.ages[0] : null);
     if (age) {
       const prefix = document.createElement('strong');
       prefix.textContent = `At ${age}`;

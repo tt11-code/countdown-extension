@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const RESEARCH_VERSION = 5;
+  const RESEARCH_VERSION = 6;
   const INSPIRATIONS_PER_PAGE = 4;
   const CACHE_MAX_AGE = 1000 * 60 * 60 * 24;
   const ATTEMPT_COOLDOWN = 1000 * 60 * 30;
@@ -49,7 +49,8 @@
     const ageMatch = raw.match(/turn(?:ing)?\s+(\d{1,3})|(\d{1,3})\s*(?:years?[- ]old|yrs?)/i);
     if (context.id === 'birthday' || ageMatch) {
       const age = Number(context.age || (ageMatch && (ageMatch[1] || ageMatch[2])));
-      return { type: 'age', age, ages: [age - 1, age].filter((value) => value > 0), topic: '' };
+      const achievementAge = age > 1 ? age - 1 : age;
+      return { type: 'age', age, ages: [achievementAge], topic: '' };
     }
     let topic = context.title.trim();
     FILLER_PHRASES.forEach((phrase) => { topic = topic.replace(phrase, ''); });
@@ -96,15 +97,29 @@
     return Boolean(source && normalizedText(quote) && source.includes(normalizedText(quote)));
   }
 
-  const numberWords = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+  const numberWords = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const tensWords = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  for (let value = 20; value <= 100; value += 1) {
+    numberWords[value] = value % 10 ? `${tensWords[Math.floor(value / 10)]}-${numberWords[value % 10]}` : tensWords[value / 10];
+  }
+  numberWords[100] = 'one hundred';
+
+  function ageStatement(text, age) {
+    const number = String(age);
+    const word = numberWords[age];
+    if (!word) return false;
+    return [number, word].some((value) => new RegExp(
+      `(?:\\b${value}[-\\s]+year[-\\s]+old\\b|\\baged[-\\s]+${value}\\b|\\bage[-\\s]+of[-\\s]+${value}\\b|\\bat(?:[-\\s]+age)?[-\\s]+${value}\\b)`,
+      'i'
+    ).test(normalizedText(text)));
+  }
+
   function hasAgeEvidence(text, ages) {
-    const normalized = normalizedText(text);
-    return ages.some((age) => new RegExp(`\\b${age}\\b`).test(normalized) || normalized.includes(numberWords[age] || '__missing__'));
+    return ages.some((age) => ageStatement(text, age));
   }
 
   function ageFromText(text, ages) {
-    const normalized = normalizedText(text);
-    return ages.find((age) => new RegExp(`\\b${age}\\b`).test(normalized) || normalized.includes(numberWords[age] || '__missing__')) || null;
+    return ages.find((age) => ageStatement(text, age)) || null;
   }
 
   function topicEvidence(item, topic) {
@@ -137,7 +152,7 @@
     const unused = entries.filter((entry) => !used.includes(entry.key));
     const entry = unused[attempt] || entries[attempt % entries.length];
     if (interpreted.type === 'age' && !forceRefresh && attempt === 0) {
-      return { key: entry.key, query: `${interpreted.age} year old person accolades` };
+      return { key: entry.key, query: `${interpreted.ages[0]} year old person accolades` };
     }
     const keyword = KEYWORDS[(used.length + attempt) % KEYWORDS.length];
     const suffix = entry.template.toLowerCase().includes(keyword.toLowerCase()) ? '' : ` ${keyword}`;
@@ -191,8 +206,9 @@
     if (seenUrls.has(item.url) || seenPeople.has(normalizePerson(item.personName))) return { item: null, reason: 'duplicate' };
     if (interpreted.type === 'age') {
       const ageText = `${item.evidenceQuote} ${item.achievement} ${item.text}`;
-      if (!interpreted.ages.includes(item.ageAtAchievement) && !hasAgeEvidence(ageText, interpreted.ages)) return { item: null, reason: 'ageMismatch' };
-      item.ageAtAchievement = interpreted.ages.includes(item.ageAtAchievement) ? item.ageAtAchievement : ageFromText(ageText, interpreted.ages);
+      if (item.ageAtAchievement !== null && item.ageAtAchievement !== interpreted.ages[0]) return { item: null, reason: 'ageMismatch' };
+      if (item.ageAtAchievement === null && !hasAgeEvidence(ageText, interpreted.ages)) return { item: null, reason: 'ageMismatch' };
+      item.ageAtAchievement = interpreted.ages[0];
     }
     if (interpreted.type === 'topic' && !topicEvidence(item, interpreted.topic)) return { item: null, reason: 'topicMismatch' };
     item.displayTitle = `${item.personName} — ${item.achievement}`.slice(0, 90).trim();

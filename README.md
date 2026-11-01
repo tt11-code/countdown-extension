@@ -21,7 +21,9 @@ failures are reported without affecting countdowns.
 
 Get a key at [exa.ai](https://exa.ai); new accounts include free credits.
 Inspiration sends only a generic search phrase, such as `19 year old
-accolades`, to Exa. It does not send the birth date, user's name, or full
+accolades` when the user is turning 20, to Exa. Age inspiration uses only the
+age immediately before the target age, not the target age itself. It does not
+send the birth date, user's name, or full
 milestone text.
 
 ## Research pipeline
@@ -32,7 +34,8 @@ deterministically:
 1. Interpret it as an age target or a cleaned topic.
 2. Select a rotating achievement-oriented query template.
 3. Search the general web with Exa.
-4. Verify structured facts, evidence quotes, ages, topic relevance, URL, and
+4. Verify structured facts, the age immediately before the target age, topic
+   relevance, URL, and
    duplicate people.
 5. Display the sourced achievement.
 
